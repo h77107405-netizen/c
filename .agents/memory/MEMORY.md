@@ -1,0 +1,1 @@
+- [Coaching Platform Architecture](coaching-platform.md) — full-stack SaaS: React+Vite frontend (port 5000) + Express backend (port 3001), Drizzle ORM + PostgreSQL, JWT auth, 3 role portals.

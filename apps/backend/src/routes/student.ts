@@ -1,0 +1,242 @@
+import { Router } from 'express';
+import { eq, desc, and } from 'drizzle-orm';
+import { db, schema } from '../db/index.js';
+import { authenticate, requireStudent } from '../middleware/auth.js';
+import { asyncHandler, ApiError } from '../middleware/error.js';
+
+const router = Router();
+router.use(authenticate, requireStudent);
+
+// ── Dashboard ──────────────────────────────────────────────────────────────
+router.get('/dashboard', asyncHandler(async (req, res) => {
+  const studentId = req.user!.id;
+
+  const [profile] = await db.select().from(schema.studentProfiles).where(eq(schema.studentProfiles.userId, studentId)).limit(1);
+  const myBatchIds = await db.select({ batchId: schema.batchStudents.batchId }).from(schema.batchStudents).where(eq(schema.batchStudents.studentId, studentId));
+  const batchIdList = myBatchIds.map(b => b.batchId);
+
+  const [recentResults, upcomingClasses, recentMaterials, myFees] = await Promise.all([
+    db.select({
+      id: schema.testResults.id, marksObtained: schema.testResults.marksObtained,
+      percentage: schema.testResults.percentage, submittedAt: schema.testResults.submittedAt,
+      testTitle: schema.tests.title, totalMarks: schema.tests.totalMarks,
+    })
+      .from(schema.testResults)
+      .leftJoin(schema.tests, eq(schema.testResults.testId, schema.tests.id))
+      .where(eq(schema.testResults.studentId, studentId))
+      .orderBy(desc(schema.testResults.submittedAt))
+      .limit(5),
+    db.select({
+      id: schema.liveClasses.id, title: schema.liveClasses.title,
+      scheduledDate: schema.liveClasses.scheduledDate, scheduledTime: schema.liveClasses.scheduledTime,
+      meetingLink: schema.liveClasses.meetingLink, status: schema.liveClasses.status,
+      teacherName: schema.users.name,
+    })
+      .from(schema.liveClasses)
+      .leftJoin(schema.users, eq(schema.liveClasses.teacherId, schema.users.id))
+      .where(eq(schema.liveClasses.status, 'scheduled'))
+      .orderBy(schema.liveClasses.scheduledDate)
+      .limit(5),
+    db.select({
+      id: schema.materials.id, title: schema.materials.title, fileType: schema.materials.fileType,
+      fileName: schema.materials.fileName, fileUrl: schema.materials.fileUrl, createdAt: schema.materials.createdAt,
+      uploaderName: schema.users.name,
+    })
+      .from(schema.materials)
+      .leftJoin(schema.users, eq(schema.materials.uploadedBy, schema.users.id))
+      .where(eq(schema.materials.visibility, true))
+      .orderBy(desc(schema.materials.createdAt))
+      .limit(5),
+    db.select({ finalAmount: schema.fees.finalAmount, dueDate: schema.fees.dueDate })
+      .from(schema.fees)
+      .where(eq(schema.fees.studentId, studentId))
+      .limit(1),
+  ]);
+
+  res.json({
+    success: true,
+    data: { recentResults, upcomingClasses, recentMaterials, feeStatus: myFees[0] ?? null },
+  });
+}));
+
+// ── Courses ────────────────────────────────────────────────────────────────
+router.get('/courses', asyncHandler(async (req, res) => {
+  const [profile] = await db.select().from(schema.studentProfiles).where(eq(schema.studentProfiles.userId, req.user!.id)).limit(1);
+  let data;
+  if (profile?.courseId) {
+    data = await db.select().from(schema.courses).where(eq(schema.courses.id, profile.courseId));
+  } else {
+    data = await db.select().from(schema.courses).where(eq(schema.courses.status, 'active'));
+  }
+  res.json({ success: true, data });
+}));
+
+// ── Materials ──────────────────────────────────────────────────────────────
+router.get('/materials', asyncHandler(async (req, res) => {
+  const data = await db
+    .select({
+      id: schema.materials.id, title: schema.materials.title, description: schema.materials.description,
+      fileUrl: schema.materials.fileUrl, fileType: schema.materials.fileType, fileName: schema.materials.fileName,
+      fileSize: schema.materials.fileSize, createdAt: schema.materials.createdAt,
+      courseName: schema.courses.name, uploaderName: schema.users.name,
+    })
+    .from(schema.materials)
+    .leftJoin(schema.courses, eq(schema.materials.courseId, schema.courses.id))
+    .leftJoin(schema.users, eq(schema.materials.uploadedBy, schema.users.id))
+    .where(eq(schema.materials.visibility, true))
+    .orderBy(desc(schema.materials.createdAt));
+  res.json({ success: true, data });
+}));
+
+// ── Live Classes ───────────────────────────────────────────────────────────
+router.get('/live-classes', asyncHandler(async (req, res) => {
+  const data = await db
+    .select({
+      id: schema.liveClasses.id, title: schema.liveClasses.title, description: schema.liveClasses.description,
+      scheduledDate: schema.liveClasses.scheduledDate, scheduledTime: schema.liveClasses.scheduledTime,
+      duration: schema.liveClasses.duration, status: schema.liveClasses.status,
+      meetingLink: schema.liveClasses.meetingLink, teacherName: schema.users.name, batchName: schema.batches.name,
+    })
+    .from(schema.liveClasses)
+    .leftJoin(schema.users, eq(schema.liveClasses.teacherId, schema.users.id))
+    .leftJoin(schema.batches, eq(schema.liveClasses.batchId, schema.batches.id))
+    .orderBy(desc(schema.liveClasses.scheduledDate));
+  res.json({ success: true, data });
+}));
+
+// ── Tests ──────────────────────────────────────────────────────────────────
+router.get('/tests', asyncHandler(async (req, res) => {
+  const data = await db
+    .select({
+      id: schema.tests.id, title: schema.tests.title, description: schema.tests.description,
+      duration: schema.tests.duration, totalMarks: schema.tests.totalMarks, passingMarks: schema.tests.passingMarks,
+      status: schema.tests.status, startDate: schema.tests.startDate, endDate: schema.tests.endDate,
+      courseName: schema.courses.name,
+    })
+    .from(schema.tests)
+    .leftJoin(schema.courses, eq(schema.tests.courseId, schema.courses.id))
+    .where(eq(schema.tests.status, 'published'))
+    .orderBy(desc(schema.tests.createdAt));
+  res.json({ success: true, data });
+}));
+
+// ── Results ────────────────────────────────────────────────────────────────
+router.get('/results', asyncHandler(async (req, res) => {
+  const data = await db
+    .select({
+      id: schema.testResults.id, marksObtained: schema.testResults.marksObtained,
+      percentage: schema.testResults.percentage, status: schema.testResults.status,
+      remarks: schema.testResults.remarks, submittedAt: schema.testResults.submittedAt,
+      testTitle: schema.tests.title, totalMarks: schema.tests.totalMarks, passingMarks: schema.tests.passingMarks,
+      courseName: schema.courses.name,
+    })
+    .from(schema.testResults)
+    .leftJoin(schema.tests, eq(schema.testResults.testId, schema.tests.id))
+    .leftJoin(schema.courses, eq(schema.tests.courseId, schema.courses.id))
+    .where(eq(schema.testResults.studentId, req.user!.id))
+    .orderBy(desc(schema.testResults.submittedAt));
+  res.json({ success: true, data });
+}));
+
+// ── Assignments ────────────────────────────────────────────────────────────
+router.get('/assignments', asyncHandler(async (req, res) => {
+  const data = await db
+    .select({
+      id: schema.assignments.id, title: schema.assignments.title, description: schema.assignments.description,
+      dueDate: schema.assignments.dueDate, totalMarks: schema.assignments.totalMarks, createdAt: schema.assignments.createdAt,
+      teacherName: schema.users.name, courseName: schema.courses.name,
+      submissionId: schema.assignmentSubmissions.id,
+      submissionStatus: schema.assignmentSubmissions.status,
+      marksAwarded: schema.assignmentSubmissions.marksAwarded,
+    })
+    .from(schema.assignments)
+    .leftJoin(schema.users, eq(schema.assignments.teacherId, schema.users.id))
+    .leftJoin(schema.courses, eq(schema.assignments.courseId, schema.courses.id))
+    .leftJoin(schema.assignmentSubmissions, and(
+      eq(schema.assignmentSubmissions.assignmentId, schema.assignments.id),
+      eq(schema.assignmentSubmissions.studentId, req.user!.id)
+    ))
+    .orderBy(desc(schema.assignments.dueDate));
+  res.json({ success: true, data });
+}));
+
+router.post('/assignments/:id/submit', asyncHandler(async (req, res) => {
+  const { submissionText, submissionUrl } = req.body;
+  const existing = await db.select().from(schema.assignmentSubmissions)
+    .where(and(eq(schema.assignmentSubmissions.assignmentId, req.params.id), eq(schema.assignmentSubmissions.studentId, req.user!.id)))
+    .limit(1);
+  if (existing.length) {
+    await db.update(schema.assignmentSubmissions).set({ submissionText, submissionUrl }).where(eq(schema.assignmentSubmissions.id, existing[0].id));
+  } else {
+    await db.insert(schema.assignmentSubmissions).values({
+      assignmentId: req.params.id, studentId: req.user!.id, submissionText, submissionUrl,
+    });
+  }
+  res.json({ success: true, message: 'Assignment submitted' });
+}));
+
+// ── Doubts ─────────────────────────────────────────────────────────────────
+router.get('/doubts', asyncHandler(async (req, res) => {
+  const doubts = await db
+    .select()
+    .from(schema.doubts)
+    .where(eq(schema.doubts.studentId, req.user!.id))
+    .orderBy(desc(schema.doubts.createdAt));
+
+  const withReplies = await Promise.all(doubts.map(async (d) => {
+    const replies = await db
+      .select({ id: schema.doubtReplies.id, reply: schema.doubtReplies.reply, createdAt: schema.doubtReplies.createdAt, teacherName: schema.users.name })
+      .from(schema.doubtReplies)
+      .leftJoin(schema.users, eq(schema.doubtReplies.teacherId, schema.users.id))
+      .where(eq(schema.doubtReplies.doubtId, d.id));
+    return { ...d, replies };
+  }));
+
+  res.json({ success: true, data: withReplies });
+}));
+
+router.post('/doubts', asyncHandler(async (req, res) => {
+  const { question, subjectId } = req.body;
+  if (!question) throw new ApiError(400, 'question is required');
+  const [doubt] = await db.insert(schema.doubts).values({ studentId: req.user!.id, subjectId, question }).returning();
+  res.status(201).json({ success: true, data: doubt });
+}));
+
+// ── Fees ───────────────────────────────────────────────────────────────────
+router.get('/fees', asyncHandler(async (req, res) => {
+  const feesData = await db
+    .select({
+      id: schema.fees.id, totalAmount: schema.fees.totalAmount, discount: schema.fees.discount,
+      finalAmount: schema.fees.finalAmount, dueDate: schema.fees.dueDate, createdAt: schema.fees.createdAt,
+      courseName: schema.courses.name,
+    })
+    .from(schema.fees)
+    .leftJoin(schema.courses, eq(schema.fees.courseId, schema.courses.id))
+    .where(eq(schema.fees.studentId, req.user!.id));
+
+  const paymentsData = await db
+    .select()
+    .from(schema.payments)
+    .where(eq(schema.payments.studentId, req.user!.id))
+    .orderBy(desc(schema.payments.paidAt));
+
+  res.json({ success: true, data: { fees: feesData, payments: paymentsData } });
+}));
+
+// ── Profile ────────────────────────────────────────────────────────────────
+router.get('/profile', asyncHandler(async (req, res) => {
+  const [user] = await db
+    .select({ id: schema.users.id, name: schema.users.name, email: schema.users.email, phone: schema.users.phone, profileImage: schema.users.profileImage, status: schema.users.status, createdAt: schema.users.createdAt })
+    .from(schema.users).where(eq(schema.users.id, req.user!.id)).limit(1);
+  const [profile] = await db.select().from(schema.studentProfiles).where(eq(schema.studentProfiles.userId, req.user!.id)).limit(1);
+  res.json({ success: true, data: { ...user, profile } });
+}));
+
+router.put('/profile', asyncHandler(async (req, res) => {
+  const { phone, address, parentName, parentPhone } = req.body;
+  await db.update(schema.users).set({ phone, updatedAt: new Date() }).where(eq(schema.users.id, req.user!.id));
+  await db.update(schema.studentProfiles).set({ address, parentName, parentPhone }).where(eq(schema.studentProfiles.userId, req.user!.id));
+  res.json({ success: true, message: 'Profile updated' });
+}));
+
+export default router;

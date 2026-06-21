@@ -1,7 +1,7 @@
 {
   "name": "Coaching Management Platform",
-  "short_name": "CoachingApp",
-  "description": "Complete coaching management system for students, teachers, and administrators",
+  "short_name": "CoachApp",
+  "description": "A complete coaching center management system",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#ffffff",
@@ -21,19 +21,8 @@
       "purpose": "any maskable"
     }
   ],
-  "categories": ["education", "productivity"],
-  "screenshots": [
-    {
-      "src": "/screenshot-wide.png",
-      "sizes": "1280x720",
-      "type": "image/png",
-      "form_factor": "wide"
-    },
-    {
-      "src": "/screenshot-mobile.png",
-      "sizes": "750x1334",
-      "type": "image/png",
-      "form_factor": "narrow"
-    }
+  "categories": [
+    "education",
+    "productivity"
   ]
 }

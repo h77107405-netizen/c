@@ -1,0 +1,113 @@
+const BASE_URL = '/api';
+
+function getToken(): string | null {
+  return localStorage.getItem('token');
+}
+
+async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const token = getToken();
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(options.headers as Record<string, string>),
+  };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  const res = await fetch(`${BASE_URL}${path}`, { ...options, headers });
+  const data = await res.json();
+
+  if (!res.ok) {
+    throw new Error(data.error || data.message || 'Request failed');
+  }
+  return data;
+}
+
+export const api = {
+  // Auth
+  auth: {
+    login: (email: string, password: string) =>
+      request<{ success: boolean; token: string; user: any }>('/auth/login', {
+        method: 'POST',
+        body: JSON.stringify({ email, password }),
+      }),
+    me: () => request<{ success: boolean; data: any }>('/auth/me'),
+  },
+
+  // Admin
+  admin: {
+    dashboard: () => request<any>('/admin/dashboard'),
+    // Students
+    getStudents: () => request<any>('/admin/students'),
+    createStudent: (data: any) => request<any>('/admin/students', { method: 'POST', body: JSON.stringify(data) }),
+    updateStudent: (id: string, data: any) => request<any>(`/admin/students/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    deleteStudent: (id: string) => request<any>(`/admin/students/${id}`, { method: 'DELETE' }),
+    // Teachers
+    getTeachers: () => request<any>('/admin/teachers'),
+    createTeacher: (data: any) => request<any>('/admin/teachers', { method: 'POST', body: JSON.stringify(data) }),
+    updateTeacher: (id: string, data: any) => request<any>(`/admin/teachers/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    deleteTeacher: (id: string) => request<any>(`/admin/teachers/${id}`, { method: 'DELETE' }),
+    // Courses
+    getCourses: () => request<any>('/admin/courses'),
+    createCourse: (data: any) => request<any>('/admin/courses', { method: 'POST', body: JSON.stringify(data) }),
+    updateCourse: (id: string, data: any) => request<any>(`/admin/courses/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    deleteCourse: (id: string) => request<any>(`/admin/courses/${id}`, { method: 'DELETE' }),
+    // Batches
+    getBatches: () => request<any>('/admin/batches'),
+    createBatch: (data: any) => request<any>('/admin/batches', { method: 'POST', body: JSON.stringify(data) }),
+    updateBatch: (id: string, data: any) => request<any>(`/admin/batches/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    deleteBatch: (id: string) => request<any>(`/admin/batches/${id}`, { method: 'DELETE' }),
+    // Materials
+    getMaterials: () => request<any>('/admin/materials'),
+    createMaterial: (data: any) => request<any>('/admin/materials', { method: 'POST', body: JSON.stringify(data) }),
+    deleteMaterial: (id: string) => request<any>(`/admin/materials/${id}`, { method: 'DELETE' }),
+    // Live Classes
+    getLiveClasses: () => request<any>('/admin/live-classes'),
+    // Tests
+    getTests: () => request<any>('/admin/tests'),
+    // Fees
+    getFees: () => request<any>('/admin/fees'),
+    createFee: (data: any) => request<any>('/admin/fees', { method: 'POST', body: JSON.stringify(data) }),
+    recordPayment: (feeId: string, data: any) => request<any>(`/admin/fees/${feeId}/payments`, { method: 'POST', body: JSON.stringify(data) }),
+  },
+
+  // Teacher
+  teacher: {
+    dashboard: () => request<any>('/teacher/dashboard'),
+    getBatches: () => request<any>('/teacher/batches'),
+    getMaterials: () => request<any>('/teacher/materials'),
+    uploadMaterial: (data: any) => request<any>('/teacher/materials', { method: 'POST', body: JSON.stringify(data) }),
+    getLiveClasses: () => request<any>('/teacher/live-classes'),
+    createLiveClass: (data: any) => request<any>('/teacher/live-classes', { method: 'POST', body: JSON.stringify(data) }),
+    updateLiveClass: (id: string, data: any) => request<any>(`/teacher/live-classes/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    deleteLiveClass: (id: string) => request<any>(`/teacher/live-classes/${id}`, { method: 'DELETE' }),
+    getTests: () => request<any>('/teacher/tests'),
+    createTest: (data: any) => request<any>('/teacher/tests', { method: 'POST', body: JSON.stringify(data) }),
+    updateTest: (id: string, data: any) => request<any>(`/teacher/tests/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    getTestResults: (testId: string) => request<any>(`/teacher/tests/${testId}/results`),
+    getAssignments: () => request<any>('/teacher/assignments'),
+    createAssignment: (data: any) => request<any>('/teacher/assignments', { method: 'POST', body: JSON.stringify(data) }),
+    getDoubts: () => request<any>('/teacher/doubts'),
+    replyDoubt: (doubtId: string, reply: string) => request<any>(`/teacher/doubts/${doubtId}/reply`, { method: 'POST', body: JSON.stringify({ reply }) }),
+  },
+
+  // Student
+  student: {
+    dashboard: () => request<any>('/student/dashboard'),
+    getCourses: () => request<any>('/student/courses'),
+    getMaterials: () => request<any>('/student/materials'),
+    getLiveClasses: () => request<any>('/student/live-classes'),
+    getTests: () => request<any>('/student/tests'),
+    getResults: () => request<any>('/student/results'),
+    getAssignments: () => request<any>('/student/assignments'),
+    submitAssignment: (id: string, data: any) => request<any>(`/student/assignments/${id}/submit`, { method: 'POST', body: JSON.stringify(data) }),
+    getDoubts: () => request<any>('/student/doubts'),
+    postDoubt: (data: any) => request<any>('/student/doubts', { method: 'POST', body: JSON.stringify(data) }),
+    getFees: () => request<any>('/student/fees'),
+    getProfile: () => request<any>('/student/profile'),
+    updateProfile: (data: any) => request<any>('/student/profile', { method: 'PUT', body: JSON.stringify(data) }),
+  },
+
+  // Seed
+  seed: {
+    demo: () => request<any>('/seed/demo', { method: 'POST' }),
+  },
+};

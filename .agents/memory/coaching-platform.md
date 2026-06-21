@@ -1,0 +1,33 @@
+---
+name: Coaching Platform Architecture
+description: Key decisions, API shapes, and deployment facts for the Coaching Management Platform SaaS.
+---
+
+## Runtime
+- Frontend: Vite + React on port 5000 (`npm run dev:frontend`)
+- Backend: Express + tsx watch on port 3001 (`npm run dev:backend`)
+- Both started together via `concurrently` from root `npm run dev`
+- Vite proxies `/api/*` → `http://localhost:3001` (vite.config.ts)
+
+## Auth
+- JWT tokens stored in `localStorage` under key `token`
+- Login: `POST /api/auth/login` → `{ success, token, user }`
+- Demo credentials: admin@demo.com/Admin@123, teacher@demo.com/Teacher@123, student@demo.com/Student@123
+- Seed: `POST /api/seed/demo` (also wired as button on login page)
+
+## Critical API shape mismatches (fixed)
+- Teacher dashboard returns `myBatches`, `materialsUploaded`, `testsCreated`, `pendingDoubts`, `upcomingClasses[]` — NOT generic totalX fields
+- Student dashboard returns `recentResults[]`, `upcomingClasses[]`, `recentMaterials[]`, `feeStatus` — NOT counts
+- Materials backend stores as `fileUrl`/`fileType`/`fileName` — frontend forms submit `url`/`type` — display layer must handle both
+
+## Router paths (react-router v7)
+- Teacher live classes: `/teacher/classes` (NOT `/teacher/live-classes`)
+- Student live classes: `/student/classes` (NOT `/student/live-classes`)
+- Router: `src/app/routes.tsx` — all 3 portals fully wired
+
+## DB
+- Drizzle ORM schema at `apps/backend/src/db/schema.ts`
+- Run `npm run db:push` to push schema changes
+- `drizzle.config.ts` at root reads `DATABASE_URL` env var
+
+**Why:** Future sessions won't have to re-discover these mismatches or wonder about the concurrently setup.

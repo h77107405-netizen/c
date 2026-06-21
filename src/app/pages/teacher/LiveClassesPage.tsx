@@ -1,181 +1,117 @@
-import React, { useState } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
+import React, { useState, useEffect } from 'react';
+import { Card, CardContent } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Badge } from '../../components/ui/badge';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../components/ui/table';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '../../components/ui/dialog';
 import { Label } from '../../components/ui/label';
-import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger,
-} from '../../components/ui/dialog';
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from '../../components/ui/select';
-import { Video, Plus, Calendar, Clock, Users, Link2, CheckCircle2 } from 'lucide-react';
-
-const classes = [
-  { id: '1', subject: 'Mathematics – Calculus', topic: 'Integration by Parts', batch: 'JEE 2025 – A', date: 'Today', time: '9:00 AM', duration: '90 min', students: 45, meetingLink: 'https://meet.google.com/abc-def-ghi', status: 'live' },
-  { id: '2', subject: 'Mathematics – Algebra', topic: 'Complex Numbers', batch: 'JEE 2025 – B', date: 'Today', time: '11:30 AM', duration: '90 min', students: 38, meetingLink: 'https://meet.google.com/xyz-uvw-rst', status: 'upcoming' },
-  { id: '3', subject: 'Mathematics – Trigonometry', topic: 'Inverse Functions', batch: 'Class 10 – A', date: 'Today', time: '2:00 PM', duration: '60 min', students: 35, meetingLink: 'https://meet.google.com/pqr-mno-lkj', status: 'upcoming' },
-  { id: '4', subject: 'Mathematics – Calculus', topic: 'Differential Equations', batch: 'JEE 2025 – A', date: 'Tomorrow', time: '9:00 AM', duration: '90 min', students: 45, meetingLink: '', status: 'scheduled' },
-  { id: '5', subject: 'Mathematics – Statistics', topic: 'Probability Basics', batch: 'Class 10 – A', date: 'Dec 22', time: '2:00 PM', duration: '60 min', students: 35, meetingLink: '', status: 'scheduled' },
-  { id: '6', subject: 'Mathematics – Vectors', topic: 'Cross Product Applications', batch: 'JEE 2025 – B', date: 'Dec 19', time: '9:00 AM', duration: '90 min', students: 38, meetingLink: 'https://meet.google.com/vec-tor-123', status: 'completed' },
-];
-
-const statusColor: Record<string, string> = {
-  live: 'destructive',
-  upcoming: 'secondary',
-  scheduled: 'outline',
-  completed: 'default',
-};
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
+import { Plus, Trash2, Loader2, RefreshCw, Video, ExternalLink } from 'lucide-react';
+import { api } from '../../lib/api';
+import { toast } from 'sonner';
 
 export const LiveClassesPage: React.FC = () => {
+  const [classes, setClasses] = useState<any[]>([]);
+  const [batches, setBatches] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
   const [addOpen, setAddOpen] = useState(false);
-  const [form, setForm] = useState({ subject: '', topic: '', batch: '', date: '', time: '', duration: '', link: '' });
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState({ title: '', batchId: '', scheduledAt: '', duration: '60', meetLink: '', description: '' });
+
+  const load = () => {
+    setLoading(true);
+    Promise.all([api.teacher.getLiveClasses(), api.teacher.getBatches()]).then(([c, b]) => {
+      if (c.success) setClasses(c.data);
+      if (b.success) setBatches(b.data);
+    }).catch(console.error).finally(() => setLoading(false));
+  };
+  useEffect(load, []);
+
+  const handleAdd = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      await api.teacher.createLiveClass(form);
+      toast.success('Live class scheduled');
+      setAddOpen(false);
+      setForm({ title: '', batchId: '', scheduledAt: '', duration: '60', meetLink: '', description: '' });
+      load();
+    } catch (err: any) { toast.error(err.message); } finally { setSaving(false); }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!confirm('Cancel this live class?')) return;
+    try { await api.teacher.deleteLiveClass(id); toast.success('Class cancelled'); load(); }
+    catch (err: any) { toast.error(err.message); }
+  };
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Live Classes</h1>
-          <p className="text-muted-foreground mt-2">Schedule and manage your live class sessions</p>
+          <p className="text-muted-foreground mt-2">Schedule and manage live teaching sessions</p>
         </div>
-        <Dialog open={addOpen} onOpenChange={setAddOpen}>
-          <DialogTrigger asChild>
-            <Button className="bg-gradient-to-r from-blue-600 to-indigo-600">
-              <Plus className="h-4 w-4 mr-2" /> Schedule Class
-            </Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader><DialogTitle>Schedule New Live Class</DialogTitle></DialogHeader>
-            <div className="space-y-4 pt-2">
-              <div className="space-y-2">
-                <Label>Subject & Topic</Label>
-                <Input placeholder="e.g. Mathematics – Integration" value={form.subject} onChange={e => setForm({...form, subject: e.target.value})} />
-              </div>
-              <div className="space-y-2">
-                <Label>Topic Details</Label>
-                <Input placeholder="e.g. Integration by Parts" value={form.topic} onChange={e => setForm({...form, topic: e.target.value})} />
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>Batch</Label>
-                  <Select value={form.batch} onValueChange={v => setForm({...form, batch: v})}>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={load}><RefreshCw className="h-4 w-4" /></Button>
+          <Dialog open={addOpen} onOpenChange={setAddOpen}>
+            <DialogTrigger asChild>
+              <Button className="bg-gradient-to-r from-red-600 to-pink-600"><Plus className="h-4 w-4 mr-2" /> Schedule Class</Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader><DialogTitle>Schedule Live Class</DialogTitle></DialogHeader>
+              <form onSubmit={handleAdd} className="space-y-4 mt-4">
+                <div><Label>Title *</Label><Input value={form.title} onChange={(e) => setForm({...form, title: e.target.value})} required /></div>
+                <div>
+                  <Label>Batch *</Label>
+                  <Select value={form.batchId} onValueChange={(v) => setForm({...form, batchId: v})}>
                     <SelectTrigger><SelectValue placeholder="Select batch" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="jee-a">JEE 2025 – A</SelectItem>
-                      <SelectItem value="jee-b">JEE 2025 – B</SelectItem>
-                      <SelectItem value="cl10-a">Class 10 – A</SelectItem>
-                    </SelectContent>
+                    <SelectContent>{batches.map((b) => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}</SelectContent>
                   </Select>
                 </div>
-                <div className="space-y-2">
-                  <Label>Duration</Label>
-                  <Select value={form.duration} onValueChange={v => setForm({...form, duration: v})}>
-                    <SelectTrigger><SelectValue placeholder="Duration" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="60">60 min</SelectItem>
-                      <SelectItem value="90">90 min</SelectItem>
-                      <SelectItem value="120">120 min</SelectItem>
-                    </SelectContent>
-                  </Select>
+                <div className="grid grid-cols-2 gap-4">
+                  <div><Label>Scheduled At *</Label><Input type="datetime-local" value={form.scheduledAt} onChange={(e) => setForm({...form, scheduledAt: e.target.value})} required /></div>
+                  <div><Label>Duration (min)</Label><Input type="number" value={form.duration} onChange={(e) => setForm({...form, duration: e.target.value})} /></div>
                 </div>
-                <div className="space-y-2">
-                  <Label>Date</Label>
-                  <Input type="date" value={form.date} onChange={e => setForm({...form, date: e.target.value})} />
-                </div>
-                <div className="space-y-2">
-                  <Label>Time</Label>
-                  <Input type="time" value={form.time} onChange={e => setForm({...form, time: e.target.value})} />
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label>Meeting Link (optional)</Label>
-                <Input placeholder="https://meet.google.com/..." value={form.link} onChange={e => setForm({...form, link: e.target.value})} />
-              </div>
-              <div className="flex gap-2 justify-end">
-                <Button variant="outline" onClick={() => setAddOpen(false)}>Cancel</Button>
-                <Button className="bg-gradient-to-r from-blue-600 to-indigo-600" onClick={() => setAddOpen(false)}>Schedule Class</Button>
-              </div>
-            </div>
-          </DialogContent>
-        </Dialog>
+                <div><Label>Meet Link *</Label><Input type="url" placeholder="https://meet.google.com/..." value={form.meetLink} onChange={(e) => setForm({...form, meetLink: e.target.value})} required /></div>
+                <div><Label>Description</Label><Input value={form.description} onChange={(e) => setForm({...form, description: e.target.value})} /></div>
+                <Button type="submit" className="w-full" disabled={saving || !form.batchId}>
+                  {saving ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Scheduling...</> : 'Schedule Class'}
+                </Button>
+              </form>
+            </DialogContent>
+          </Dialog>
+        </div>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        {[
-          { label: 'Total Classes', value: String(classes.length), color: 'text-gray-900' },
-          { label: 'Live Now', value: String(classes.filter(c => c.status === 'live').length), color: 'text-red-600' },
-          { label: 'Upcoming Today', value: String(classes.filter(c => c.status === 'upcoming').length), color: 'text-blue-600' },
-          { label: 'Completed', value: String(classes.filter(c => c.status === 'completed').length), color: 'text-green-600' },
-        ].map(s => (
-          <Card key={s.label}>
-            <CardContent className="p-6">
-              <p className="text-sm font-medium text-muted-foreground">{s.label}</p>
-              <h3 className={`text-2xl font-bold mt-2 ${s.color}`}>{s.value}</h3>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-        {classes.map(cls => (
-          <Card key={cls.id} className={`hover:shadow-md transition-shadow ${cls.status === 'live' ? 'border-red-300 bg-red-50/30' : ''}`}>
-            <CardContent className="p-5">
-              <div className="flex items-start justify-between mb-3">
-                <div className="flex items-center gap-2">
-                  <div className={`p-2 rounded-lg ${cls.status === 'live' ? 'bg-red-100' : 'bg-blue-100'}`}>
-                    <Video className={`h-4 w-4 ${cls.status === 'live' ? 'text-red-600' : 'text-blue-600'}`} />
-                  </div>
-                  <div>
-                    <p className="font-semibold text-sm leading-tight">{cls.subject}</p>
-                    <p className="text-xs text-muted-foreground">{cls.topic}</p>
-                  </div>
-                </div>
-                <Badge variant={statusColor[cls.status] as 'default' | 'secondary' | 'outline' | 'destructive'}>
-                  {cls.status === 'live' && <span className="h-1.5 w-1.5 bg-white rounded-full mr-1 animate-pulse inline-block" />}
-                  {cls.status}
-                </Badge>
-              </div>
-
-              <div className="space-y-1.5 mb-4">
-                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <Users className="h-3 w-3" />
-                  <span>{cls.batch} — {cls.students} students</span>
-                </div>
-                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <Calendar className="h-3 w-3" />
-                  <span>{cls.date}</span>
-                </div>
-                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <Clock className="h-3 w-3" />
-                  <span>{cls.time} — {cls.duration}</span>
-                </div>
-              </div>
-
-              {cls.status === 'live' ? (
-                <Button className="w-full bg-red-600 hover:bg-red-700" size="sm">
-                  <Video className="h-3 w-3 mr-1" /> Start / Join Now
-                </Button>
-              ) : cls.status === 'upcoming' ? (
-                <div className="flex gap-2">
-                  <Button variant="outline" className="flex-1" size="sm">
-                    <Link2 className="h-3 w-3 mr-1" /> Add Link
-                  </Button>
-                  <Button className="flex-1" size="sm">Join</Button>
-                </div>
-              ) : cls.status === 'completed' ? (
-                <Button variant="outline" className="w-full" size="sm">
-                  <CheckCircle2 className="h-3 w-3 mr-1 text-green-600" /> View Recording
-                </Button>
-              ) : (
-                <Button variant="outline" className="w-full" size="sm">
-                  <Link2 className="h-3 w-3 mr-1" /> Add Meeting Link
-                </Button>
-              )}
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+      {loading ? (
+        <div className="text-center py-12"><Loader2 className="h-8 w-8 animate-spin mx-auto text-blue-600" /></div>
+      ) : (
+        <div className="border rounded-lg overflow-hidden">
+          <Table>
+            <TableHeader>
+              <TableRow><TableHead>Title</TableHead><TableHead>Batch</TableHead><TableHead>Scheduled</TableHead><TableHead>Duration</TableHead><TableHead>Status</TableHead><TableHead>Link</TableHead><TableHead className="text-right">Actions</TableHead></TableRow>
+            </TableHeader>
+            <TableBody>
+              {classes.map((c) => (
+                <TableRow key={c.id}>
+                  <TableCell className="font-medium">{c.title}</TableCell>
+                  <TableCell>{c.batchName || '—'}</TableCell>
+                  <TableCell className="text-sm">{c.scheduledAt ? new Date(c.scheduledAt).toLocaleString() : '—'}</TableCell>
+                  <TableCell>{c.duration ? c.duration + ' min' : '—'}</TableCell>
+                  <TableCell><Badge variant={c.status === 'live' ? 'destructive' : c.status === 'completed' ? 'secondary' : 'default'}>{c.status}</Badge></TableCell>
+                  <TableCell>{c.meetLink && <a href={c.meetLink} target="_blank" rel="noopener noreferrer" className="text-blue-600"><ExternalLink className="h-4 w-4" /></a>}</TableCell>
+                  <TableCell className="text-right">
+                    <Button variant="ghost" size="icon" className="text-red-600" onClick={() => handleDelete(c.id)}><Trash2 className="h-4 w-4" /></Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+              {classes.length === 0 && <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">No live classes scheduled</TableCell></TableRow>}
+            </TableBody>
+          </Table>
+        </div>
+      )}
     </div>
   );
 };

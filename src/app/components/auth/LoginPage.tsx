@@ -4,35 +4,45 @@ import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
-import { GraduationCap, Loader2 } from 'lucide-react';
+import { GraduationCap, Loader2, Database } from 'lucide-react';
+import { toast } from 'sonner';
+import { api } from '../../lib/api';
 
 export const LoginPage: React.FC = () => {
   const { login } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isSeeding, setIsSeeding] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    if (!email || !password) {
-      return;
-    }
-
+    if (!email || !password) return;
     try {
       setIsLoading(true);
       await login(email, password);
-    } catch (error) {
-      console.error('Login error:', error);
+    } catch {
     } finally {
       setIsLoading(false);
     }
   };
 
+  const handleSeedDemo = async () => {
+    setIsSeeding(true);
+    try {
+      await api.seed.demo();
+      toast.success('Demo data seeded! You can now log in.');
+    } catch (e: any) {
+      toast.error(e.message || 'Seeding failed');
+    } finally {
+      setIsSeeding(false);
+    }
+  };
+
   const quickLoginButtons = [
-    { label: 'Login as Student', email: 'student@demo.com', role: 'student' },
-    { label: 'Login as Teacher', email: 'teacher@demo.com', role: 'teacher' },
-    { label: 'Login as Admin', email: 'admin@demo.com', role: 'admin' },
+    { label: 'Login as Student', email: 'student@demo.com', password: 'Student@123' },
+    { label: 'Login as Teacher', email: 'teacher@demo.com', password: 'Teacher@123' },
+    { label: 'Login as Admin', email: 'admin@demo.com', password: 'Admin@123' },
   ];
 
   return (
@@ -65,7 +75,6 @@ export const LoginPage: React.FC = () => {
                 required
               />
             </div>
-            
             <div className="space-y-2">
               <Label htmlFor="password">Password</Label>
               <Input
@@ -78,44 +87,29 @@ export const LoginPage: React.FC = () => {
                 required
               />
             </div>
-
-            <Button 
-              type="submit" 
+            <Button
+              type="submit"
               className="w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700"
               disabled={isLoading}
             >
-              {isLoading ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Signing in...
-                </>
-              ) : (
-                'Sign In'
-              )}
+              {isLoading ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Signing in...</> : 'Sign In'}
             </Button>
           </form>
 
           <div className="relative">
-            <div className="absolute inset-0 flex items-center">
-              <span className="w-full border-t" />
-            </div>
+            <div className="absolute inset-0 flex items-center"><span className="w-full border-t" /></div>
             <div className="relative flex justify-center text-xs uppercase">
-              <span className="bg-white px-2 text-muted-foreground">
-                Quick Demo Login
-              </span>
+              <span className="bg-white px-2 text-muted-foreground">Quick Demo Login</span>
             </div>
           </div>
 
           <div className="space-y-2">
             {quickLoginButtons.map((btn) => (
               <Button
-                key={btn.role}
+                key={btn.email}
                 variant="outline"
                 className="w-full"
-                onClick={() => {
-                  setEmail(btn.email);
-                  setPassword('demo123');
-                }}
+                onClick={() => { setEmail(btn.email); setPassword(btn.password); }}
                 disabled={isLoading}
               >
                 {btn.label}
@@ -123,8 +117,18 @@ export const LoginPage: React.FC = () => {
             ))}
           </div>
 
-          <div className="text-center text-sm text-muted-foreground">
-            <p>Demo credentials: Any email with role name + "demo123"</p>
+          <div className="border-t pt-4">
+            <Button
+              variant="secondary"
+              className="w-full"
+              onClick={handleSeedDemo}
+              disabled={isSeeding}
+            >
+              {isSeeding ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Seeding...</> : <><Database className="mr-2 h-4 w-4" />Seed Demo Data</>}
+            </Button>
+            <p className="text-xs text-center text-muted-foreground mt-2">
+              First time? Seed demo data then use quick login buttons above.
+            </p>
           </div>
         </CardContent>
       </Card>

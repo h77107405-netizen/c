@@ -1,166 +1,54 @@
-import React from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
-import { Button } from '../../components/ui/button';
+import React, { useEffect, useState } from 'react';
+import { Card, CardContent } from '../../components/ui/card';
 import { Badge } from '../../components/ui/badge';
-import { DollarSign, Download, CheckCircle2, AlertCircle, Clock } from 'lucide-react';
-
-const feeDetails = {
-  course: 'JEE Main & Advanced 2025',
-  batch: 'Batch A',
-  totalFee: 75000,
-  paidAmount: 50000,
-  dueAmount: 25000,
-  nextDueDate: '2025-02-01',
-  status: 'partial',
-};
-
-const paymentHistory = [
-  { id: 'RCP-001', amount: 25000, date: '2024-06-15', method: 'UPI', status: 'success', description: 'First Installment' },
-  { id: 'RCP-002', amount: 15000, date: '2024-09-01', method: 'Net Banking', status: 'success', description: 'Second Installment' },
-  { id: 'RCP-003', amount: 10000, date: '2024-11-15', method: 'UPI', status: 'success', description: 'Third Installment' },
-];
-
-const installments = [
-  { label: 'First Installment', amount: 25000, dueDate: '2024-06-15', status: 'paid' },
-  { label: 'Second Installment', amount: 15000, dueDate: '2024-09-01', status: 'paid' },
-  { label: 'Third Installment', amount: 10000, dueDate: '2024-11-15', status: 'paid' },
-  { label: 'Fourth Installment', amount: 25000, dueDate: '2025-02-01', status: 'pending' },
-];
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../components/ui/table';
+import { Loader2, IndianRupee } from 'lucide-react';
+import { api } from '../../lib/api';
 
 export const StudentFeesPage: React.FC = () => {
-  const paidPercent = Math.round((feeDetails.paidAmount / feeDetails.totalFee) * 100);
+  const [fees, setFees] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    api.student.getFees().then((r) => { if (r.success) setFees(r.data); }).catch(console.error).finally(() => setLoading(false));
+  }, []);
+
+  const totalDue = fees.filter(f => f.status !== 'paid').reduce((s, f) => s + (Number(f.amount) - Number(f.paidAmount || 0)), 0);
+  const totalPaid = fees.reduce((s, f) => s + Number(f.paidAmount || 0), 0);
 
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold text-gray-900">Fees & Payments</h1>
-        <p className="text-muted-foreground mt-2">Track your fee payment status and download receipts</p>
+        <h1 className="text-3xl font-bold text-gray-900">My Fees</h1>
+        <p className="text-muted-foreground mt-2">Track your fee payments</p>
       </div>
-
-      {/* Fee Overview */}
-      <Card className="border-l-4 border-l-blue-600">
-        <CardContent className="p-6">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
-            <div>
-              <h2 className="text-xl font-bold">{feeDetails.course}</h2>
-              <p className="text-muted-foreground text-sm">Batch: {feeDetails.batch}</p>
-            </div>
-            <Badge
-              variant={feeDetails.status === 'paid' ? 'default' : feeDetails.status === 'partial' ? 'secondary' : 'destructive'}
-              className="text-sm px-4 py-1"
-            >
-              {feeDetails.status === 'partial' ? 'Partially Paid' : feeDetails.status}
-            </Badge>
-          </div>
-
-          <div className="grid grid-cols-3 gap-6 mb-6">
-            <div className="text-center bg-gray-50 rounded-xl p-4">
-              <p className="text-sm text-muted-foreground mb-1">Total Fee</p>
-              <p className="text-2xl font-bold text-gray-900">₹{feeDetails.totalFee.toLocaleString()}</p>
-            </div>
-            <div className="text-center bg-green-50 rounded-xl p-4">
-              <p className="text-sm text-muted-foreground mb-1">Paid</p>
-              <p className="text-2xl font-bold text-green-600">₹{feeDetails.paidAmount.toLocaleString()}</p>
-            </div>
-            <div className="text-center bg-orange-50 rounded-xl p-4">
-              <p className="text-sm text-muted-foreground mb-1">Balance Due</p>
-              <p className="text-2xl font-bold text-orange-600">₹{feeDetails.dueAmount.toLocaleString()}</p>
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <div className="flex justify-between text-sm">
-              <span className="text-muted-foreground">Payment Progress</span>
-              <span className="font-medium">{paidPercent}% paid</span>
-            </div>
-            <div className="w-full bg-gray-200 rounded-full h-3">
-              <div className="bg-green-500 h-3 rounded-full" style={{ width: `${paidPercent}%` }} />
-            </div>
-          </div>
-
-          {feeDetails.dueAmount > 0 && (
-            <div className="mt-4 p-3 bg-orange-50 border border-orange-200 rounded-lg flex items-start gap-3">
-              <AlertCircle className="h-5 w-5 text-orange-600 shrink-0 mt-0.5" />
-              <div>
-                <p className="text-sm font-medium text-orange-800">Payment Due</p>
-                <p className="text-xs text-orange-700 mt-0.5">
-                  ₹{feeDetails.dueAmount.toLocaleString()} due by {new Date(feeDetails.nextDueDate).toLocaleDateString()}. Contact the admin for payment options.
-                </p>
-              </div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Installment Schedule */}
-      <Card>
-        <CardHeader><CardTitle>Installment Schedule</CardTitle></CardHeader>
-        <CardContent>
-          <div className="space-y-3">
-            {installments.map((inst, i) => (
-              <div key={i} className="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50 transition-colors">
-                <div className="flex items-center gap-3">
-                  {inst.status === 'paid'
-                    ? <CheckCircle2 className="h-5 w-5 text-green-600" />
-                    : <Clock className="h-5 w-5 text-orange-500" />}
-                  <div>
-                    <p className="font-medium text-sm">{inst.label}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {inst.status === 'paid' ? 'Paid on' : 'Due by'} {new Date(inst.dueDate).toLocaleDateString()}
-                    </p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-3">
-                  <p className="font-bold">₹{inst.amount.toLocaleString()}</p>
-                  <Badge variant={inst.status === 'paid' ? 'default' : 'secondary'}>
-                    {inst.status}
-                  </Badge>
-                </div>
-              </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Payment History */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <CardTitle>Payment History</CardTitle>
-            <Button variant="outline" size="sm">
-              <Download className="h-4 w-4 mr-2" /> Download All Receipts
-            </Button>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-3">
-            {paymentHistory.map(payment => (
-              <div key={payment.id} className="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50 transition-colors">
-                <div className="flex items-center gap-3">
-                  <div className="h-10 w-10 rounded-full bg-green-100 flex items-center justify-center">
-                    <DollarSign className="h-5 w-5 text-green-600" />
-                  </div>
-                  <div>
-                    <p className="font-medium text-sm">{payment.description}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {payment.method} · {new Date(payment.date).toLocaleDateString()}
-                    </p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-3">
-                  <div className="text-right">
-                    <p className="font-bold text-green-600">₹{payment.amount.toLocaleString()}</p>
-                    <p className="text-xs text-muted-foreground font-mono">{payment.id}</p>
-                  </div>
-                  <Button size="sm" variant="ghost">
-                    <Download className="h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <Card><CardContent className="p-6"><div className="flex items-center gap-3"><div className="p-3 bg-green-100 rounded-xl"><IndianRupee className="h-5 w-5 text-green-600" /></div><div><p className="text-sm text-muted-foreground">Total Paid</p><h3 className="text-2xl font-bold text-green-600">₹{totalPaid.toLocaleString('en-IN')}</h3></div></div></CardContent></Card>
+        <Card className={totalDue > 0 ? 'border-red-200' : ''}><CardContent className="p-6"><div className="flex items-center gap-3"><div className="p-3 bg-red-100 rounded-xl"><IndianRupee className="h-5 w-5 text-red-600" /></div><div><p className="text-sm text-muted-foreground">Amount Due</p><h3 className={'text-2xl font-bold ' + (totalDue > 0 ? 'text-red-600' : 'text-green-600')}>₹{totalDue.toLocaleString('en-IN')}</h3></div></div></CardContent></Card>
+        <Card><CardContent className="p-6"><div className="flex items-center gap-3"><div className="p-3 bg-blue-100 rounded-xl"><IndianRupee className="h-5 w-5 text-blue-600" /></div><div><p className="text-sm text-muted-foreground">Total Records</p><h3 className="text-2xl font-bold">{fees.length}</h3></div></div></CardContent></Card>
+      </div>
+      {loading ? <div className="text-center py-12"><Loader2 className="h-8 w-8 animate-spin mx-auto" /></div> : (
+        <div className="border rounded-lg overflow-hidden">
+          <Table>
+            <TableHeader>
+              <TableRow><TableHead>Description</TableHead><TableHead>Type</TableHead><TableHead>Amount</TableHead><TableHead>Paid</TableHead><TableHead>Due Date</TableHead><TableHead>Status</TableHead></TableRow>
+            </TableHeader>
+            <TableBody>
+              {fees.map((f) => (
+                <TableRow key={f.id}>
+                  <TableCell className="font-medium">{f.description || 'Fee'}</TableCell>
+                  <TableCell className="capitalize">{f.feeType}</TableCell>
+                  <TableCell>₹{Number(f.amount).toLocaleString('en-IN')}</TableCell>
+                  <TableCell>₹{Number(f.paidAmount || 0).toLocaleString('en-IN')}</TableCell>
+                  <TableCell className="text-sm text-muted-foreground">{f.dueDate ? new Date(f.dueDate).toLocaleDateString() : '—'}</TableCell>
+                  <TableCell><Badge variant={f.status === 'paid' ? 'default' : f.status === 'overdue' ? 'destructive' : 'secondary'}>{f.status}</Badge></TableCell>
+                </TableRow>
+              ))}
+              {fees.length === 0 && <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">No fee records found</TableCell></TableRow>}
+            </TableBody>
+          </Table>
+        </div>
+      )}
     </div>
   );
 };

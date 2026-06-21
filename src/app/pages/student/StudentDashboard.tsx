@@ -1,194 +1,138 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
-import { Button } from '../../components/ui/button';
 import { Badge } from '../../components/ui/badge';
-import { Calendar, FileText, ClipboardList, Video, BookOpen, TrendingUp, Clock, CheckCircle2 } from 'lucide-react';
-
-const todayTasks = [
-  { type: 'class', title: 'Mathematics - Calculus', time: '10:00 AM', status: 'upcoming', icon: Video },
-  { type: 'test', title: 'Physics Unit Test', time: '2:00 PM', status: 'pending', icon: ClipboardList },
-  { type: 'assignment', title: 'Chemistry Assignment', time: 'Due: 6:00 PM', status: 'pending', icon: BookOpen },
-];
-
-const upcomingClasses = [
-  { subject: 'Mathematics', topic: 'Calculus - Integration', teacher: 'Prof. Sharma', time: 'Today, 10:00 AM', status: 'live' },
-  { subject: 'Physics', topic: 'Mechanics - Motion', teacher: 'Dr. Verma', time: 'Today, 2:00 PM', status: 'upcoming' },
-  { subject: 'Chemistry', topic: 'Organic Chemistry', teacher: 'Prof. Gupta', time: 'Tomorrow, 9:00 AM', status: 'scheduled' },
-];
-
-const recentMaterials = [
-  { title: 'Calculus - Chapter 5 Notes', subject: 'Mathematics', uploadedBy: 'Prof. Sharma', date: '2 hours ago', isNew: true },
-  { title: 'Physics Formula Sheet', subject: 'Physics', uploadedBy: 'Dr. Verma', date: '1 day ago', isNew: true },
-  { title: 'Organic Chemistry Practice', subject: 'Chemistry', uploadedBy: 'Prof. Gupta', date: '2 days ago', isNew: false },
-];
-
-const stats = [
-  { name: 'Tests Completed', value: '24', change: '+4 this week', icon: CheckCircle2, color: 'from-green-600 to-green-400' },
-  { name: 'Avg. Score', value: '85%', change: '+5% improved', icon: TrendingUp, color: 'from-blue-600 to-blue-400' },
-  { name: 'Materials', value: '156', change: '8 new today', icon: FileText, color: 'from-purple-600 to-purple-400' },
-  { name: 'Pending Work', value: '3', change: '2 assignments', icon: Clock, color: 'from-orange-600 to-orange-400' },
-];
-
-const recentResults = [
-  { test: 'Mathematics - Unit Test 3', score: '92/100', percentage: '92%', date: '3 days ago', grade: 'A+' },
-  { test: 'Physics - Chapter Test', score: '78/100', percentage: '78%', date: '5 days ago', grade: 'B+' },
-  { test: 'Chemistry Quiz', score: '85/100', percentage: '85%', date: '1 week ago', grade: 'A' },
-];
+import { Button } from '../../components/ui/button';
+import { Video, ClipboardList, FileText, ExternalLink, IndianRupee, TrendingUp } from 'lucide-react';
+import { api } from '../../lib/api';
+import { useAuth } from '../../contexts/AuthContext';
 
 export const StudentDashboard: React.FC = () => {
+  const { user } = useAuth();
+  const [stats, setStats] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    api.student.dashboard().then((r) => { if (r.success) setStats(r.data); }).catch(console.error).finally(() => setLoading(false));
+  }, []);
+
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold text-gray-900">Student Dashboard</h1>
-        <p className="text-muted-foreground mt-2">Welcome back! Here's your learning progress today.</p>
+        <h1 className="text-3xl font-bold text-gray-900">Welcome, {user?.name}!</h1>
+        <p className="text-muted-foreground mt-2">Track your learning progress and upcoming sessions.</p>
       </div>
 
-      {/* Today's Tasks */}
-      <Card className="border-l-4 border-l-orange-600">
-        <CardHeader>
-          <CardTitle className="flex items-center">
-            <Calendar className="h-5 w-5 mr-2" />
-            What You Need to Do Today
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {todayTasks.map((task, index) => (
-              <div key={index} className="p-4 border rounded-lg hover:shadow-md transition-shadow">
-                <div className="flex items-start justify-between mb-2">
-                  <task.icon className="h-5 w-5 text-orange-600" />
-                  <Badge variant={task.status === 'upcoming' ? 'default' : 'secondary'}>
-                    {task.status}
-                  </Badge>
-                </div>
-                <h4 className="font-semibold text-sm mb-1">{task.title}</h4>
-                <p className="text-xs text-muted-foreground">{task.time}</p>
-                <Button size="sm" className="w-full mt-3">
-                  {task.type === 'class' ? 'Join Class' : task.type === 'test' ? 'Start Test' : 'Submit'}
-                </Button>
-              </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        {stats.map((stat) => (
-          <Card key={stat.name}>
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground">{stat.name}</p>
-                  <h3 className="text-3xl font-bold mt-2">{stat.value}</h3>
-                  <p className="text-xs text-green-600 mt-1">{stat.change}</p>
-                </div>
-                <div className={`p-3 rounded-xl bg-gradient-to-br ${stat.color}`}>
-                  <stat.icon className="h-6 w-6 text-white" />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Upcoming Classes */}
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle>Upcoming Live Classes</CardTitle>
-            <Video className="h-5 w-5 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              {upcomingClasses.map((classItem, index) => (
-                <div key={index} className="p-4 border rounded-lg hover:bg-gray-50 transition-colors">
-                  <div className="flex items-center justify-between mb-2">
-                    <div>
-                      <h4 className="font-semibold text-sm">{classItem.subject}</h4>
-                      <p className="text-xs text-muted-foreground">{classItem.topic}</p>
-                    </div>
-                    {classItem.status === 'live' && (
-                      <Badge className="bg-red-600">
-                        <div className="h-2 w-2 bg-white rounded-full mr-1 animate-pulse" />
-                        Live
-                      </Badge>
-                    )}
+      {loading ? (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {[...Array(3)].map((_, i) => <Card key={i}><CardContent className="p-6"><div className="h-24 bg-gray-100 rounded animate-pulse" /></CardContent></Card>)}
+        </div>
+      ) : (
+        <>
+          {stats?.feeStatus && (
+            <Card className="border-orange-200 bg-orange-50">
+              <CardContent className="p-4">
+                <div className="flex items-center gap-3">
+                  <IndianRupee className="h-5 w-5 text-orange-600" />
+                  <div>
+                    <p className="font-medium text-orange-800">Fee Due</p>
+                    <p className="text-sm text-orange-600">₹{Number(stats.feeStatus.finalAmount).toLocaleString('en-IN')} due by {stats.feeStatus.dueDate ? new Date(stats.feeStatus.dueDate).toLocaleDateString() : '—'}</p>
                   </div>
-                  <p className="text-xs text-muted-foreground mb-2">{classItem.teacher}</p>
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-blue-600">{classItem.time}</span>
-                    <Button size="sm" variant={classItem.status === 'live' ? 'default' : 'outline'}>
-                      {classItem.status === 'live' ? 'Join Now' : 'View Details'}
-                    </Button>
-                  </div>
+                  <a href="/student/fees" className="ml-auto">
+                    <Button size="sm" variant="outline" className="border-orange-400 text-orange-700">View Fees</Button>
+                  </a>
                 </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
+              </CardContent>
+            </Card>
+          )}
 
-        {/* Recent Materials */}
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle>Latest Study Materials</CardTitle>
-            <FileText className="h-5 w-5 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              {recentMaterials.map((material, index) => (
-                <div key={index} className="p-4 border rounded-lg hover:bg-gray-50 transition-colors">
-                  <div className="flex items-start justify-between mb-2">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2">
-                        <h4 className="font-semibold text-sm">{material.title}</h4>
-                        {material.isNew && (
-                          <Badge variant="secondary" className="text-xs">New</Badge>
-                        )}
+          {stats?.upcomingClasses?.length > 0 && (
+            <Card>
+              <CardHeader><CardTitle className="flex items-center gap-2"><Video className="h-5 w-5 text-blue-600" />Upcoming Live Classes</CardTitle></CardHeader>
+              <CardContent>
+                <div className="space-y-3">
+                  {stats.upcomingClasses.map((c: any) => (
+                    <div key={c.id} className="flex items-center justify-between p-3 border rounded-lg bg-blue-50">
+                      <div>
+                        <p className="font-medium">{c.title}</p>
+                        <p className="text-sm text-muted-foreground">{c.teacherName} • {c.scheduledDate ? new Date(c.scheduledDate).toLocaleDateString() : ''} {c.scheduledTime || ''}</p>
                       </div>
-                      <p className="text-xs text-blue-600 mt-1">{material.subject}</p>
+                      {c.meetingLink && (
+                        <a href={c.meetingLink} target="_blank" rel="noopener noreferrer">
+                          <Button size="sm" className="bg-blue-600"><ExternalLink className="h-3 w-3 mr-1" />Join</Button>
+                        </a>
+                      )}
                     </div>
-                  </div>
-                  <p className="text-xs text-muted-foreground mb-2">By {material.uploadedBy}</p>
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-muted-foreground">{material.date}</span>
-                    <Button size="sm" variant="link" className="p-0 h-auto">
-                      Download →
-                    </Button>
-                  </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+              </CardContent>
+            </Card>
+          )}
 
-      {/* Recent Results */}
+          {stats?.recentResults?.length > 0 && (
+            <Card>
+              <CardHeader><CardTitle className="flex items-center gap-2"><TrendingUp className="h-5 w-5 text-green-600" />Recent Test Results</CardTitle></CardHeader>
+              <CardContent>
+                <div className="space-y-3">
+                  {stats.recentResults.map((r: any) => {
+                    const pct = Number(r.percentage);
+                    const grade = pct >= 90 ? 'A+' : pct >= 80 ? 'A' : pct >= 70 ? 'B' : pct >= 60 ? 'C' : 'D';
+                    return (
+                      <div key={r.id} className="flex items-center justify-between p-3 border rounded-lg">
+                        <div>
+                          <p className="font-medium">{r.testTitle}</p>
+                          <p className="text-sm text-muted-foreground">{r.marksObtained}/{r.totalMarks} marks • {r.submittedAt ? new Date(r.submittedAt).toLocaleDateString() : ''}</p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-medium">{pct}%</span>
+                          <Badge variant={pct >= 70 ? 'default' : 'secondary'}>{grade}</Badge>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {stats?.recentMaterials?.length > 0 && (
+            <Card>
+              <CardHeader><CardTitle className="flex items-center gap-2"><FileText className="h-5 w-5 text-purple-600" />Recent Study Materials</CardTitle></CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {stats.recentMaterials.map((m: any) => (
+                    <div key={m.id} className="flex items-center gap-3 p-3 border rounded-lg">
+                      <div className="p-2 bg-purple-100 rounded"><FileText className="h-4 w-4 text-purple-600" /></div>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium truncate">{m.title}</p>
+                        <p className="text-xs text-muted-foreground">{m.uploaderName}</p>
+                      </div>
+                      {m.fileUrl && <a href={m.fileUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 text-xs hover:underline shrink-0">Open</a>}
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </>
+      )}
+
       <Card>
-        <CardHeader>
-          <CardTitle>Recent Test Results</CardTitle>
-        </CardHeader>
+        <CardHeader><CardTitle>Quick Navigation</CardTitle></CardHeader>
         <CardContent>
-          <div className="space-y-3">
-            {recentResults.map((result, index) => (
-              <div key={index} className="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50 transition-colors">
-                <div className="flex-1">
-                  <h4 className="font-semibold">{result.test}</h4>
-                  <p className="text-sm text-muted-foreground">{result.date}</p>
-                </div>
-                <div className="text-center px-4">
-                  <p className="text-2xl font-bold text-blue-600">{result.percentage}</p>
-                  <p className="text-xs text-muted-foreground">{result.score}</p>
-                </div>
-                <div className="text-center px-4">
-                  <Badge variant={result.grade.startsWith('A') ? 'default' : 'secondary'} className="text-lg">
-                    {result.grade}
-                  </Badge>
-                </div>
-                <Button size="sm" variant="outline">
-                  View Details
-                </Button>
-              </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            {[
+              { label: 'My Courses', href: '/student/courses' },
+              { label: 'Study Materials', href: '/student/materials' },
+              { label: 'Live Classes', href: '/student/classes' },
+              { label: 'Tests', href: '/student/tests' },
+              { label: 'Assignments', href: '/student/assignments' },
+              { label: 'My Doubts', href: '/student/doubts' },
+              { label: 'Results', href: '/student/results' },
+              { label: 'Fees', href: '/student/fees' },
+            ].map((a) => (
+              <a key={a.label} href={a.href} className="p-3 text-center text-sm font-medium border rounded-lg hover:bg-blue-50 hover:border-blue-300 hover:text-blue-700 transition-colors">
+                {a.label}
+              </a>
             ))}
           </div>
         </CardContent>
