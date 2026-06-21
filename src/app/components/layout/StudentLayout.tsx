@@ -40,6 +40,7 @@ const navigation = [
   { name: 'Assignments', href: '/student/assignments', icon: BookOpen },
   { name: 'Ask Doubt', href: '/student/doubts', icon: MessageCircle },
   { name: 'Fees', href: '/student/fees', icon: DollarSign },
+  { name: 'My Profile', href: '/student/profile', icon: User },
 ];
 
 export const StudentLayout: React.FC = () => {
@@ -155,11 +156,11 @@ export const StudentLayout: React.FC = () => {
                 <DropdownMenuContent align="end" className="w-56">
                   <DropdownMenuLabel>My Account</DropdownMenuLabel>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => navigate('/student/profile')}>
                     <User className="mr-2 h-4 w-4" />
                     Profile
                   </DropdownMenuItem>
-                  <DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => navigate('/student/profile')}>
                     <Settings className="mr-2 h-4 w-4" />
                     Settings
                   </DropdownMenuItem>

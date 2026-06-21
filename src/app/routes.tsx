@@ -4,11 +4,39 @@ import { LoginPage } from './components/auth/LoginPage';
 import { AdminLayout } from './components/layout/AdminLayout';
 import { TeacherLayout } from './components/layout/TeacherLayout';
 import { StudentLayout } from './components/layout/StudentLayout';
+
+// Admin Pages
 import { AdminDashboard } from './pages/admin/AdminDashboard';
 import { StudentsPage } from './pages/admin/StudentsPage';
+import { TeachersPage } from './pages/admin/TeachersPage';
+import { CoursesPage } from './pages/admin/CoursesPage';
+import { BatchesPage } from './pages/admin/BatchesPage';
+import { AdminMaterialsPage } from './pages/admin/AdminMaterialsPage';
+import { AdminTestsPage } from './pages/admin/AdminTestsPage';
+import { FeesPage } from './pages/admin/FeesPage';
+import { SettingsPage } from './pages/admin/SettingsPage';
+
+// Teacher Pages
 import { TeacherDashboard } from './pages/teacher/TeacherDashboard';
+import { MyBatchesPage } from './pages/teacher/MyBatchesPage';
+import { TeacherMaterialsPage } from './pages/teacher/TeacherMaterialsPage';
+import { LiveClassesPage } from './pages/teacher/LiveClassesPage';
+import { TeacherTestsPage } from './pages/teacher/TeacherTestsPage';
+import { AssignmentsPage } from './pages/teacher/AssignmentsPage';
+import { DoubtsPage } from './pages/teacher/DoubtsPage';
+import { AnalyticsPage } from './pages/teacher/AnalyticsPage';
+
+// Student Pages
 import { StudentDashboard } from './pages/student/StudentDashboard';
+import { CoursesPage as StudentCoursesPage } from './pages/student/CoursesPage';
 import { MaterialsPage } from './pages/student/MaterialsPage';
+import { StudentLiveClassesPage } from './pages/student/StudentLiveClassesPage';
+import { StudentTestsPage } from './pages/student/StudentTestsPage';
+import { ResultsPage } from './pages/student/ResultsPage';
+import { StudentAssignmentsPage } from './pages/student/StudentAssignmentsPage';
+import { StudentDoubtsPage } from './pages/student/StudentDoubtsPage';
+import { StudentFeesPage } from './pages/student/StudentFeesPage';
+import { ProfilePage } from './pages/student/ProfilePage';
 
 // Protected Route Component
 const ProtectedRoute = ({ children, allowedRoles }: { children: React.ReactNode; allowedRoles: string[] }) => {
@@ -19,7 +47,6 @@ const ProtectedRoute = ({ children, allowedRoles }: { children: React.ReactNode;
   }
 
   if (!allowedRoles.includes(user.role)) {
-    // Redirect to appropriate dashboard based on role
     if (user.role === 'admin') return <Navigate to="/admin" replace />;
     if (user.role === 'teacher') return <Navigate to="/teacher" replace />;
     if (user.role === 'student') return <Navigate to="/student" replace />;
@@ -36,7 +63,6 @@ const RootRedirect = () => {
     return <LoginPage />;
   }
 
-  // Redirect to appropriate dashboard based on role
   if (user.role === 'admin') return <Navigate to="/admin" replace />;
   if (user.role === 'teacher') return <Navigate to="/teacher" replace />;
   if (user.role === 'student') return <Navigate to="/student" replace />;
@@ -49,7 +75,8 @@ export const router = createBrowserRouter([
     path: '/',
     element: <RootRedirect />,
   },
-  // Admin Routes
+
+  // ─── Admin Routes ────────────────────────────────────────────────────────────
   {
     path: '/admin',
     element: (
@@ -58,45 +85,19 @@ export const router = createBrowserRouter([
       </ProtectedRoute>
     ),
     children: [
-      {
-        index: true,
-        element: <AdminDashboard />,
-      },
-      {
-        path: 'students',
-        element: <StudentsPage />,
-      },
-      {
-        path: 'teachers',
-        element: <div className="p-8 text-center text-muted-foreground">Teachers Management - Coming Soon</div>,
-      },
-      {
-        path: 'courses',
-        element: <div className="p-8 text-center text-muted-foreground">Courses Management - Coming Soon</div>,
-      },
-      {
-        path: 'batches',
-        element: <div className="p-8 text-center text-muted-foreground">Batches Management - Coming Soon</div>,
-      },
-      {
-        path: 'materials',
-        element: <div className="p-8 text-center text-muted-foreground">Materials Management - Coming Soon</div>,
-      },
-      {
-        path: 'tests',
-        element: <div className="p-8 text-center text-muted-foreground">Tests Management - Coming Soon</div>,
-      },
-      {
-        path: 'fees',
-        element: <div className="p-8 text-center text-muted-foreground">Fees Management - Coming Soon</div>,
-      },
-      {
-        path: 'settings',
-        element: <div className="p-8 text-center text-muted-foreground">Settings - Coming Soon</div>,
-      },
+      { index: true, element: <AdminDashboard /> },
+      { path: 'students', element: <StudentsPage /> },
+      { path: 'teachers', element: <TeachersPage /> },
+      { path: 'courses', element: <CoursesPage /> },
+      { path: 'batches', element: <BatchesPage /> },
+      { path: 'materials', element: <AdminMaterialsPage /> },
+      { path: 'tests', element: <AdminTestsPage /> },
+      { path: 'fees', element: <FeesPage /> },
+      { path: 'settings', element: <SettingsPage /> },
     ],
   },
-  // Teacher Routes
+
+  // ─── Teacher Routes ──────────────────────────────────────────────────────────
   {
     path: '/teacher',
     element: (
@@ -105,41 +106,18 @@ export const router = createBrowserRouter([
       </ProtectedRoute>
     ),
     children: [
-      {
-        index: true,
-        element: <TeacherDashboard />,
-      },
-      {
-        path: 'batches',
-        element: <div className="p-8 text-center text-muted-foreground">My Batches - Coming Soon</div>,
-      },
-      {
-        path: 'materials',
-        element: <div className="p-8 text-center text-muted-foreground">Materials Management - Coming Soon</div>,
-      },
-      {
-        path: 'classes',
-        element: <div className="p-8 text-center text-muted-foreground">Live Classes - Coming Soon</div>,
-      },
-      {
-        path: 'tests',
-        element: <div className="p-8 text-center text-muted-foreground">Tests Management - Coming Soon</div>,
-      },
-      {
-        path: 'assignments',
-        element: <div className="p-8 text-center text-muted-foreground">Assignments - Coming Soon</div>,
-      },
-      {
-        path: 'doubts',
-        element: <div className="p-8 text-center text-muted-foreground">Student Doubts - Coming Soon</div>,
-      },
-      {
-        path: 'analytics',
-        element: <div className="p-8 text-center text-muted-foreground">Student Analytics - Coming Soon</div>,
-      },
+      { index: true, element: <TeacherDashboard /> },
+      { path: 'batches', element: <MyBatchesPage /> },
+      { path: 'materials', element: <TeacherMaterialsPage /> },
+      { path: 'classes', element: <LiveClassesPage /> },
+      { path: 'tests', element: <TeacherTestsPage /> },
+      { path: 'assignments', element: <AssignmentsPage /> },
+      { path: 'doubts', element: <DoubtsPage /> },
+      { path: 'analytics', element: <AnalyticsPage /> },
     ],
   },
-  // Student Routes
+
+  // ─── Student Routes ──────────────────────────────────────────────────────────
   {
     path: '/student',
     element: (
@@ -148,45 +126,20 @@ export const router = createBrowserRouter([
       </ProtectedRoute>
     ),
     children: [
-      {
-        index: true,
-        element: <StudentDashboard />,
-      },
-      {
-        path: 'courses',
-        element: <div className="p-8 text-center text-muted-foreground">My Courses - Coming Soon</div>,
-      },
-      {
-        path: 'materials',
-        element: <MaterialsPage />,
-      },
-      {
-        path: 'classes',
-        element: <div className="p-8 text-center text-muted-foreground">Live Classes - Coming Soon</div>,
-      },
-      {
-        path: 'tests',
-        element: <div className="p-8 text-center text-muted-foreground">Tests - Coming Soon</div>,
-      },
-      {
-        path: 'results',
-        element: <div className="p-8 text-center text-muted-foreground">My Results - Coming Soon</div>,
-      },
-      {
-        path: 'assignments',
-        element: <div className="p-8 text-center text-muted-foreground">Assignments - Coming Soon</div>,
-      },
-      {
-        path: 'doubts',
-        element: <div className="p-8 text-center text-muted-foreground">Ask Doubt - Coming Soon</div>,
-      },
-      {
-        path: 'fees',
-        element: <div className="p-8 text-center text-muted-foreground">Fees & Receipts - Coming Soon</div>,
-      },
+      { index: true, element: <StudentDashboard /> },
+      { path: 'courses', element: <StudentCoursesPage /> },
+      { path: 'materials', element: <MaterialsPage /> },
+      { path: 'classes', element: <StudentLiveClassesPage /> },
+      { path: 'tests', element: <StudentTestsPage /> },
+      { path: 'results', element: <ResultsPage /> },
+      { path: 'assignments', element: <StudentAssignmentsPage /> },
+      { path: 'doubts', element: <StudentDoubtsPage /> },
+      { path: 'fees', element: <StudentFeesPage /> },
+      { path: 'profile', element: <ProfilePage /> },
     ],
   },
-  // 404 Route
+
+  // ─── 404 ─────────────────────────────────────────────────────────────────────
   {
     path: '*',
     element: (
