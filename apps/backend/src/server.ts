@@ -1,4 +1,3 @@
-import http from 'http';
 import express from 'express';
 import cors from 'cors';
 import path from 'path';
@@ -8,7 +7,6 @@ import { config, validateEnv } from './config/env.js';
 import { connectDatabase } from './config/database.js';
 import routes from './routes/index.js';
 import { errorHandler, notFoundHandler } from './middleware/error.js';
-import { createWsServer } from './ws/wsManager.js';
 
 validateEnv();
 
@@ -55,13 +53,9 @@ app.use(errorHandler);
 async function startServer() {
   try {
     await connectDatabase();
-
-    // Create HTTP server and attach WebSocket server to it
-    const server = http.createServer(app);
-    createWsServer(server);
-
-    server.listen(config.port, () => {
+    app.listen(config.port, () => {
       console.log(`🚀 API Server running on port ${config.port}`);
+      console.log(`📡 SSE notifications available at /api/notifications/stream`);
     });
   } catch (error) {
     console.error('Failed to start server:', error);

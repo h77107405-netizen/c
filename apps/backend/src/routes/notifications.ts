@@ -3,9 +3,39 @@ import { eq, desc, and, count } from 'drizzle-orm';
 import { db, schema } from '../db/index.js';
 import { authenticate } from '../middleware/auth.js';
 import { asyncHandler, ApiError } from '../middleware/error.js';
-import { emitToUsers } from '../ws/wsManager.js';
+import { emitToUsers, registerSseClient } from '../ws/wsManager.js';
+import { verifyToken } from '../utils/jwt.js';
 
 const router = Router();
+
+// ── SSE stream (auth via query param since EventSource has no custom headers) ──
+router.get('/stream', (req, res) => {
+  const token = req.query.token as string;
+  if (!token) { res.status(401).end(); return; }
+
+  const user = verifyToken(token);
+  if (!user) { res.status(401).end(); return; }
+
+  // Set SSE headers
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no'); // disable Nginx/proxy buffering
+  res.flushHeaders();
+
+  const cleanup = registerSseClient(user.id, user.role, res);
+
+  // Send a heartbeat comment every 20s to keep the connection alive through proxies
+  const heartbeat = setInterval(() => {
+    try { res.write(': heartbeat\n\n'); } catch { clearInterval(heartbeat); }
+  }, 20000);
+
+  req.on('close', () => {
+    clearInterval(heartbeat);
+    cleanup();
+  });
+});
+
 router.use(authenticate);
 
 router.get('/', asyncHandler(async (req, res) => {
@@ -66,7 +96,7 @@ router.post('/send', asyncHandler(async (req, res) => {
     }))
   ).returning();
 
-  // Push real-time notification to all recipients via WebSocket
+  // Push real-time SSE event to all recipients
   const wsEvent = { id: inserted[0]?.id, title, message, type, link, createdAt: new Date().toISOString(), isRead: false };
   emitToUsers(receiverIds, wsEvent);
 

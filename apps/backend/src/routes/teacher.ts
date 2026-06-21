@@ -3,6 +3,7 @@ import { eq, desc, count, and, sql, inArray } from 'drizzle-orm';
 import { db, schema } from '../db/index.js';
 import { authenticate, requireTeacher } from '../middleware/auth.js';
 import { asyncHandler, ApiError } from '../middleware/error.js';
+import { emitToUser } from '../ws/wsManager.js';
 
 const router = Router();
 router.use(authenticate, requireTeacher);
@@ -255,8 +256,39 @@ router.get('/doubts', asyncHandler(async (req, res) => {
 router.post('/doubts/:id/reply', asyncHandler(async (req, res) => {
   const { reply } = req.body;
   if (!reply) throw new ApiError(400, 'reply is required');
+
+  // Fetch the doubt to get the student's id and question preview
+  const [doubt] = await db
+    .select({ studentId: schema.doubts.studentId, question: schema.doubts.question })
+    .from(schema.doubts)
+    .where(eq(schema.doubts.id, req.params.id));
+
+  if (!doubt) throw new ApiError(404, 'Doubt not found');
+
   await db.insert(schema.doubtReplies).values({ doubtId: req.params.id, teacherId: req.user!.id, reply });
   await db.update(schema.doubts).set({ status: 'answered', updatedAt: new Date() }).where(eq(schema.doubts.id, req.params.id));
+
+  // Persist a notification record so the student sees it in the bell
+  const questionPreview = doubt.question.length > 60 ? doubt.question.slice(0, 60) + '…' : doubt.question;
+  const [notif] = await db.insert(schema.notifications).values({
+    receiverId: doubt.studentId,
+    senderId: req.user!.id,
+    type: 'doubt',
+    title: 'Your doubt has been answered',
+    message: `A teacher replied to: "${questionPreview}"`,
+  }).returning();
+
+  // Push real-time WebSocket event to the student
+  emitToUser(doubt.studentId, {
+    id: notif.id,
+    title: notif.title,
+    message: notif.message,
+    type: 'doubt',
+    doubtId: req.params.id,
+    createdAt: notif.createdAt,
+    isRead: false,
+  });
+
   res.json({ success: true, message: 'Reply posted' });
 }));
 

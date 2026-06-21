@@ -1,128 +1,76 @@
-import { WebSocket, WebSocketServer } from 'ws';
-import { IncomingMessage } from 'http';
-import { verifyToken } from '../utils/jwt.js';
+// SSE (Server-Sent Events) manager — replaces WebSocket for real-time notifications.
+// SSE is pure HTTP, works through any proxy (including Replit's), and is server-to-client only
+// which is exactly what the notification system needs.
 
-interface AuthenticatedClient {
-  ws: WebSocket;
+import type { Response } from 'express';
+
+interface SseClient {
+  res: Response;
   userId: string;
   role: string;
-  isAlive: boolean;
 }
 
-const clients = new Map<string, Set<AuthenticatedClient>>();
+const clients = new Map<string, Set<SseClient>>();
 
-let wss: WebSocketServer | null = null;
-
-export function createWsServer(server: any) {
-  wss = new WebSocketServer({ server, path: '/ws' });
-
-  wss.on('connection', (ws: WebSocket, req: IncomingMessage) => {
-    // Extract token from query string: /ws?token=...
-    const url = new URL(req.url!, `http://${req.headers.host}`);
-    const token = url.searchParams.get('token');
-
-    if (!token) {
-      ws.close(4001, 'No token');
-      return;
-    }
-
-    const user = verifyToken(token);
-    if (!user) {
-      ws.close(4002, 'Invalid token');
-      return;
-    }
-
-    const client: AuthenticatedClient = { ws, userId: user.id, role: user.role, isAlive: true };
-
-    if (!clients.has(user.id)) clients.set(user.id, new Set());
-    clients.get(user.id)!.add(client);
-
-    ws.send(JSON.stringify({ type: 'connected', data: { userId: user.id, role: user.role } }));
-
-    ws.on('pong', () => { client.isAlive = true; });
-
-    ws.on('message', (data) => {
-      try {
-        const msg = JSON.parse(data.toString());
-        if (msg.type === 'ping') ws.send(JSON.stringify({ type: 'pong' }));
-      } catch {}
-    });
-
-    ws.on('close', () => {
-      clients.get(user.id)?.delete(client);
-      if (clients.get(user.id)?.size === 0) clients.delete(user.id);
-    });
-
-    ws.on('error', () => {});
-  });
-
-  // Heartbeat: ping every 25s, close stale connections
-  const heartbeat = setInterval(() => {
-    clients.forEach((userClients) => {
-      userClients.forEach((client) => {
-        if (!client.isAlive) {
-          client.ws.terminate();
-          userClients.delete(client);
-          return;
-        }
-        client.isAlive = false;
-        client.ws.ping();
-      });
-    });
-  }, 25000);
-
-  wss.on('close', () => clearInterval(heartbeat));
-
-  console.log('🔌 WebSocket server initialized at /ws');
-  return wss;
+function addClient(userId: string, role: string, res: Response): SseClient {
+  const client: SseClient = { res, userId, role };
+  if (!clients.has(userId)) clients.set(userId, new Set());
+  clients.get(userId)!.add(client);
+  return client;
 }
 
-// Send a notification event to a specific user (all their open sessions)
+function removeClient(userId: string, client: SseClient) {
+  clients.get(userId)?.delete(client);
+  if (clients.get(userId)?.size === 0) clients.delete(userId);
+}
+
+function send(client: SseClient, event: object) {
+  try {
+    client.res.write(`data: ${JSON.stringify(event)}\n\n`);
+  } catch {}
+}
+
+// Register an SSE connection. Returns a cleanup function.
+export function registerSseClient(userId: string, role: string, res: Response): () => void {
+  const client = addClient(userId, role, res);
+  // Send a connected acknowledgement
+  send(client, { type: 'connected', userId, role });
+  return () => removeClient(userId, client);
+}
+
+// Send a notification event to a specific user (all their open tabs)
 export function emitToUser(userId: string, event: object) {
-  const userClients = clients.get(userId);
-  if (!userClients) return;
-  const payload = JSON.stringify({ type: 'notification', data: event });
-  userClients.forEach((client) => {
-    if (client.ws.readyState === WebSocket.OPEN) {
-      client.ws.send(payload);
-    }
-  });
+  const payload = { type: 'notification', data: event };
+  clients.get(userId)?.forEach((c) => send(c, payload));
 }
 
-// Send to all connected clients of a given role
+// Send to all clients of a given role
 export function emitToRole(role: string, event: object) {
-  const payload = JSON.stringify({ type: 'notification', data: event });
+  const payload = { type: 'notification', data: event };
   clients.forEach((userClients) => {
-    userClients.forEach((client) => {
-      if (client.role === role && client.ws.readyState === WebSocket.OPEN) {
-        client.ws.send(payload);
-      }
+    userClients.forEach((c) => {
+      if (c.role === role) send(c, payload);
     });
   });
 }
 
 // Send to a list of userIds
 export function emitToUsers(userIds: string[], event: object) {
-  const payload = JSON.stringify({ type: 'notification', data: event });
+  const payload = { type: 'notification', data: event };
   userIds.forEach((uid) => {
-    clients.get(uid)?.forEach((client) => {
-      if (client.ws.readyState === WebSocket.OPEN) client.ws.send(payload);
-    });
+    clients.get(uid)?.forEach((c) => send(c, payload));
   });
 }
 
-// Broadcast to all connected clients
+// Broadcast to every connected client
 export function emitToAll(event: object) {
-  const payload = JSON.stringify({ type: 'notification', data: event });
+  const payload = { type: 'notification', data: event };
   clients.forEach((userClients) => {
-    userClients.forEach((client) => {
-      if (client.ws.readyState === WebSocket.OPEN) client.ws.send(payload);
-    });
+    userClients.forEach((c) => send(c, payload));
   });
 }
 
-// Get stats
-export function getWsStats() {
+export function getSseStats() {
   let total = 0;
   clients.forEach((s) => { total += s.size; });
   return { connectedUsers: clients.size, totalConnections: total };

@@ -8,6 +8,7 @@ export type RealtimeNotificationEvent = {
   link?: string;
   createdAt: string;
   isRead: boolean;
+  [key: string]: any;
 };
 
 type Options = {
@@ -15,81 +16,61 @@ type Options = {
   enabled?: boolean;
 };
 
+/**
+ * Connects to the backend SSE stream (/api/notifications/stream) and calls
+ * onNotification for each incoming notification event.
+ *
+ * Uses the native EventSource API — works over plain HTTP/HTTPS through
+ * any proxy (including Replit's), no WebSocket protocol upgrade needed.
+ * EventSource auto-reconnects natively.
+ */
 export function useRealtimeNotifications({ onNotification, enabled = true }: Options) {
-  const wsRef = useRef<WebSocket | null>(null);
-  const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const reconnectDelay = useRef(1000);
+  const esRef = useRef<EventSource | null>(null);
   const mountedRef = useRef(true);
   const onNotificationRef = useRef(onNotification);
   onNotificationRef.current = onNotification;
 
   const connect = useCallback(() => {
-    if (!mountedRef.current) return;
+    if (!mountedRef.current || !enabled) return;
 
     const token = localStorage.getItem('token');
     if (!token) return;
 
-    // Determine WebSocket URL — in dev this goes via Vite proxy at /ws
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}/ws?token=${encodeURIComponent(token)}`;
+    // SSE endpoint — auth via query param (EventSource doesn't support headers)
+    const url = `/api/notifications/stream?token=${encodeURIComponent(token)}`;
 
     try {
-      const ws = new WebSocket(wsUrl);
-      wsRef.current = ws;
+      const es = new EventSource(url);
+      esRef.current = es;
 
-      ws.onopen = () => {
-        reconnectDelay.current = 1000; // reset backoff on success
-      };
-
-      ws.onmessage = (event) => {
+      es.onmessage = (event) => {
         try {
           const msg = JSON.parse(event.data);
           if (msg.type === 'notification' && msg.data) {
             onNotificationRef.current(msg.data as RealtimeNotificationEvent);
           }
-          // handle ping from server
-          if (msg.type === 'ping') {
-            ws.send(JSON.stringify({ type: 'pong' }));
-          }
         } catch {}
       };
 
-      ws.onclose = (e) => {
-        wsRef.current = null;
-        // 4001/4002 = auth failure, don't reconnect
-        if (e.code === 4001 || e.code === 4002) return;
-        if (!mountedRef.current) return;
-
-        // Exponential backoff: 1s → 2s → 4s → ... max 30s
-        reconnectTimer.current = setTimeout(() => {
-          reconnectDelay.current = Math.min(reconnectDelay.current * 2, 30000);
-          connect();
-        }, reconnectDelay.current);
-      };
-
-      ws.onerror = () => {
-        ws.close();
+      es.onerror = () => {
+        // EventSource handles reconnection automatically — we just close the
+        // current instance if the component is unmounted.
+        if (!mountedRef.current) {
+          es.close();
+          esRef.current = null;
+        }
       };
     } catch {}
-  }, []);
+  }, [enabled]);
 
   useEffect(() => {
     mountedRef.current = true;
-    if (enabled) connect();
+    connect();
 
     return () => {
       mountedRef.current = false;
-      if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
-      wsRef.current?.close();
-      wsRef.current = null;
+      esRef.current?.close();
+      esRef.current = null;
     };
-  }, [enabled, connect]);
-
-  const disconnect = useCallback(() => {
-    mountedRef.current = false;
-    if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
-    wsRef.current?.close();
-  }, []);
-
-  return { disconnect };
+  }, [connect]);
 }
