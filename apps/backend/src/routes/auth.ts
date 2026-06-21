@@ -1,10 +1,10 @@
 import { Router } from 'express';
 import { eq } from 'drizzle-orm';
 import { db, schema } from '../db/index.js';
-import { comparePassword } from '../utils/password.js';
+import { comparePassword, hashPassword } from '../utils/password.js';
 import { generateToken } from '../utils/jwt.js';
 import { authenticate } from '../middleware/auth.js';
-import { asyncHandler } from '../middleware/error.js';
+import { asyncHandler, ApiError } from '../middleware/error.js';
 
 const router = Router();
 
@@ -68,6 +68,38 @@ router.get('/me', authenticate, asyncHandler(async (req, res) => {
   }
 
   res.json({ success: true, data: user });
+}));
+
+// POST /api/auth/change-password
+router.post('/change-password', authenticate, asyncHandler(async (req, res) => {
+  const { currentPassword, newPassword } = req.body;
+  if (!currentPassword || !newPassword) {
+    throw new ApiError(400, 'currentPassword and newPassword are required');
+  }
+  if (newPassword.length < 6) {
+    throw new ApiError(400, 'New password must be at least 6 characters');
+  }
+
+  const [user] = await db.select().from(schema.users).where(eq(schema.users.id, req.user!.id)).limit(1);
+  if (!user) throw new ApiError(404, 'User not found');
+
+  const isValid = await comparePassword(currentPassword, user.password);
+  if (!isValid) throw new ApiError(401, 'Current password is incorrect');
+
+  const hashed = await hashPassword(newPassword);
+  await db.update(schema.users).set({ password: hashed, updatedAt: new Date() }).where(eq(schema.users.id, user.id));
+
+  res.json({ success: true, message: 'Password changed successfully' });
+}));
+
+// PUT /api/auth/profile
+router.put('/profile', authenticate, asyncHandler(async (req, res) => {
+  const { name, phone } = req.body;
+  const updates: any = { updatedAt: new Date() };
+  if (name) updates.name = name;
+  if (phone !== undefined) updates.phone = phone;
+  await db.update(schema.users).set(updates).where(eq(schema.users.id, req.user!.id));
+  res.json({ success: true, message: 'Profile updated' });
 }));
 
 export default router;

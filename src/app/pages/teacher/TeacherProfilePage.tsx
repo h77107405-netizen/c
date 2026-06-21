@@ -7,31 +7,31 @@ import { Separator } from '../../components/ui/separator';
 import { Loader2, Save, User, Lock, Eye, EyeOff } from 'lucide-react';
 import { api } from '../../lib/api';
 import { toast } from 'sonner';
+import { useAuth } from '../../contexts/AuthContext';
 
-export const ProfilePage: React.FC = () => {
-  const [profile, setProfile] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
+export const TeacherProfilePage: React.FC = () => {
+  const { user } = useAuth();
+  const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [changingPwd, setChangingPwd] = useState(false);
   const [showCurrentPwd, setShowCurrentPwd] = useState(false);
   const [showNewPwd, setShowNewPwd] = useState(false);
-  const [form, setForm] = useState({ phone: '', parentName: '', parentPhone: '', address: '' });
+  const [nameForm, setNameForm] = useState({ name: user?.name || '', phone: '' });
   const [pwdForm, setPwdForm] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
 
   useEffect(() => {
-    api.student.getProfile().then((r) => {
+    api.teacher.getProfile().then((r) => {
       if (r.success) {
-        setProfile(r.data);
-        setForm({ phone: r.data.phone || '', parentName: r.data.parentName || '', parentPhone: r.data.parentPhone || '', address: r.data.address || '' });
+        setNameForm({ name: r.data.name || '', phone: r.data.phone || '' });
       }
     }).catch(console.error).finally(() => setLoading(false));
   }, []);
 
-  const handleSave = async (e: React.FormEvent) => {
+  const handleSaveName = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
     try {
-      await api.student.updateProfile(form);
+      await api.teacher.updateProfile({ name: nameForm.name, phone: nameForm.phone });
       toast.success('Profile updated successfully');
     } catch (err: any) { toast.error(err.message); } finally { setSaving(false); }
   };
@@ -48,7 +48,7 @@ export const ProfilePage: React.FC = () => {
     }
     setChangingPwd(true);
     try {
-      await api.student.changePassword({ currentPassword: pwdForm.currentPassword, newPassword: pwdForm.newPassword });
+      await api.auth.changePassword({ currentPassword: pwdForm.currentPassword, newPassword: pwdForm.newPassword });
       toast.success('Password changed successfully');
       setPwdForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
     } catch (err: any) { toast.error(err.message); } finally { setChangingPwd(false); }
@@ -58,20 +58,21 @@ export const ProfilePage: React.FC = () => {
     <div className="space-y-6 max-w-2xl">
       <div>
         <h1 className="text-3xl font-bold text-gray-900">My Profile</h1>
-        <p className="text-muted-foreground mt-2">Manage your personal information and security</p>
+        <p className="text-muted-foreground mt-2">Manage your information and account security</p>
       </div>
+
       {loading ? <div className="text-center py-12"><Loader2 className="h-8 w-8 animate-spin mx-auto" /></div> : (
         <>
           <Card>
             <CardContent className="p-6">
               <div className="flex items-center gap-6">
-                <div className="p-6 bg-gradient-to-br from-blue-600 to-purple-600 rounded-full">
+                <div className="p-6 bg-gradient-to-br from-green-600 to-teal-600 rounded-full">
                   <User className="h-12 w-12 text-white" />
                 </div>
                 <div>
-                  <h2 className="text-2xl font-bold">{profile?.name}</h2>
-                  <p className="text-muted-foreground">{profile?.email}</p>
-                  <p className="text-sm text-blue-600 mt-1 font-medium">Student</p>
+                  <h2 className="text-2xl font-bold">{user?.name}</h2>
+                  <p className="text-muted-foreground">{user?.email}</p>
+                  <p className="text-sm text-green-600 mt-1 font-medium">Teacher</p>
                 </div>
               </div>
             </CardContent>
@@ -80,12 +81,16 @@ export const ProfilePage: React.FC = () => {
           <Card>
             <CardHeader><CardTitle className="flex items-center gap-2"><User className="h-5 w-5" />Update Profile</CardTitle></CardHeader>
             <CardContent>
-              <form onSubmit={handleSave} className="space-y-4">
+              <form onSubmit={handleSaveName} className="space-y-4">
                 <div className="grid grid-cols-2 gap-4">
-                  <div><Label>Phone Number</Label><Input value={form.phone} onChange={(e) => setForm({...form, phone: e.target.value})} /></div>
-                  <div><Label>Parent/Guardian Name</Label><Input value={form.parentName} onChange={(e) => setForm({...form, parentName: e.target.value})} /></div>
-                  <div><Label>Parent Phone</Label><Input value={form.parentPhone} onChange={(e) => setForm({...form, parentPhone: e.target.value})} /></div>
-                  <div><Label>Address</Label><Input value={form.address} onChange={(e) => setForm({...form, address: e.target.value})} /></div>
+                  <div>
+                    <Label>Full Name</Label>
+                    <Input className="mt-1" value={nameForm.name} onChange={(e) => setNameForm({...nameForm, name: e.target.value})} required />
+                  </div>
+                  <div>
+                    <Label>Phone Number</Label>
+                    <Input className="mt-1" value={nameForm.phone} onChange={(e) => setNameForm({...nameForm, phone: e.target.value})} />
+                  </div>
                 </div>
                 <Button type="submit" disabled={saving}>
                   {saving ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Saving...</> : <><Save className="mr-2 h-4 w-4" />Save Changes</>}

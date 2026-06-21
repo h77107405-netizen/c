@@ -66,6 +66,10 @@ export const api = {
         body: JSON.stringify({ email, password }),
       }),
     me: () => request<{ success: boolean; data: any }>('/auth/me'),
+    changePassword: (data: { currentPassword: string; newPassword: string }) =>
+      request<any>('/auth/change-password', { method: 'POST', body: JSON.stringify(data) }),
+    updateProfile: (data: { name?: string; phone?: string }) =>
+      request<any>('/auth/profile', { method: 'PUT', body: JSON.stringify(data) }),
   },
 
   // Notifications
@@ -134,6 +138,7 @@ export const api = {
 
     // Tests (server-side paginated)
     getTests: (params?: PaginationParams) => request<any>(`/admin/tests${buildQuery(params)}`),
+    getTestResults: (testId: string) => request<any>(`/admin/tests/${testId}/results`),
 
     // Fees (server-side paginated)
     getFees: (params?: PaginationParams) => request<any>(`/admin/fees${buildQuery(params)}`),
@@ -176,6 +181,8 @@ export const api = {
       request<any>(`/teacher/assignments/${assignmentId}/submissions/${submissionId}/grade`, { method: 'PATCH', body: JSON.stringify(data) }),
     getDoubts: () => request<any>('/teacher/doubts'),
     replyDoubt: (doubtId: string, reply: string) => request<any>(`/teacher/doubts/${doubtId}/reply`, { method: 'POST', body: JSON.stringify({ reply }) }),
+    getProfile: () => request<any>('/auth/me'),
+    updateProfile: (data: { name?: string; phone?: string }) => request<any>('/auth/profile', { method: 'PUT', body: JSON.stringify(data) }),
   },
 
   // Student
@@ -195,6 +202,8 @@ export const api = {
     getFees: () => request<any>('/student/fees'),
     getProfile: () => request<any>('/student/profile'),
     updateProfile: (data: any) => request<any>('/student/profile', { method: 'PUT', body: JSON.stringify(data) }),
+    changePassword: (data: { currentPassword: string; newPassword: string }) =>
+      request<any>('/auth/change-password', { method: 'POST', body: JSON.stringify(data) }),
   },
 
   // Seed

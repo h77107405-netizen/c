@@ -3,7 +3,7 @@ import { eq, desc, count, and, sql, inArray } from 'drizzle-orm';
 import { db, schema } from '../db/index.js';
 import { authenticate, requireTeacher } from '../middleware/auth.js';
 import { asyncHandler, ApiError } from '../middleware/error.js';
-import { emitToUser } from '../ws/wsManager.js';
+import { emitToUser, emitToUsers } from '../ws/wsManager.js';
 
 const router = Router();
 router.use(authenticate, requireTeacher);
@@ -80,6 +80,28 @@ router.post('/materials', asyncHandler(async (req, res) => {
     title, description, fileUrl, fileType: fileType || 'document', fileName,
     fileSize, courseId, batchId, visibility: true, uploadedBy: req.user!.id,
   }).returning();
+
+  // Notify students in the batch about the new material
+  if (batchId) {
+    const batchStudents = await db
+      .select({ studentId: schema.batchStudents.studentId })
+      .from(schema.batchStudents)
+      .where(eq(schema.batchStudents.batchId, batchId));
+
+    if (batchStudents.length > 0) {
+      const studentIds = batchStudents.map(s => s.studentId);
+      const notifications = await db.insert(schema.notifications).values(
+        studentIds.map(sid => ({
+          receiverId: sid, senderId: req.user!.id, type: 'general',
+          title: 'New Material Available',
+          message: `"${title}" has been added to your course materials`,
+        }))
+      ).returning();
+      const event = { id: notifications[0]?.id, title: 'New Material Available', message: `"${title}" has been added to your course materials`, type: 'general', createdAt: new Date().toISOString(), isRead: false };
+      emitToUsers(studentIds, event);
+    }
+  }
+
   res.status(201).json({ success: true, data: mat });
 }));
 
@@ -113,11 +135,38 @@ router.post('/live-classes', asyncHandler(async (req, res) => {
 
 router.put('/live-classes/:id', asyncHandler(async (req, res) => {
   const { title, description, meetingLink, scheduledDate, scheduledTime, duration, status } = req.body;
+  const [prev] = await db.select({ status: schema.liveClasses.status, batchId: schema.liveClasses.batchId, title: schema.liveClasses.title })
+    .from(schema.liveClasses)
+    .where(and(eq(schema.liveClasses.id, req.params.id), eq(schema.liveClasses.teacherId, req.user!.id))).limit(1);
+
   await db.update(schema.liveClasses).set({
     title, description, meetingLink,
     scheduledDate: scheduledDate ? new Date(scheduledDate) : undefined,
     scheduledTime, duration, status, updatedAt: new Date(),
   }).where(and(eq(schema.liveClasses.id, req.params.id), eq(schema.liveClasses.teacherId, req.user!.id)));
+
+  // SSE: notify batch students when class goes live
+  if (status === 'live' && prev?.status !== 'live' && prev?.batchId) {
+    const batchStudents = await db
+      .select({ studentId: schema.batchStudents.studentId })
+      .from(schema.batchStudents)
+      .where(eq(schema.batchStudents.batchId, prev.batchId));
+
+    if (batchStudents.length > 0) {
+      const studentIds = batchStudents.map(s => s.studentId);
+      const classTitle = title || prev.title;
+      const notifications = await db.insert(schema.notifications).values(
+        studentIds.map(sid => ({
+          receiverId: sid, senderId: req.user!.id, type: 'class',
+          title: '🔴 Class is Live Now!',
+          message: `"${classTitle}" has started. Join now!`,
+        }))
+      ).returning();
+      const event = { id: notifications[0]?.id, title: '🔴 Class is Live Now!', message: `"${classTitle}" has started. Join now!`, type: 'class', createdAt: new Date().toISOString(), isRead: false };
+      emitToUsers(studentIds, event);
+    }
+  }
+
   res.json({ success: true, message: 'Class updated' });
 }));
 
@@ -231,10 +280,23 @@ router.patch('/assignments/:id/submissions/:submissionId/grade', asyncHandler(as
     .where(and(eq(schema.assignments.id, req.params.id), eq(schema.assignments.teacherId, req.user!.id))).limit(1);
   if (!assignment) throw new ApiError(403, 'Not your assignment');
 
+  const [submission] = await db.select({ studentId: schema.assignmentSubmissions.studentId })
+    .from(schema.assignmentSubmissions).where(eq(schema.assignmentSubmissions.id, req.params.submissionId)).limit(1);
+
   await db.update(schema.assignmentSubmissions).set({
     marksAwarded: parseInt(marksAwarded), feedback, status: 'graded',
     gradedAt: new Date(), gradedBy: req.user!.id,
   }).where(eq(schema.assignmentSubmissions.id, req.params.submissionId));
+
+  // Notify student of graded assignment
+  if (submission?.studentId) {
+    const [notif] = await db.insert(schema.notifications).values({
+      receiverId: submission.studentId, senderId: req.user!.id, type: 'assignment',
+      title: 'Assignment Graded',
+      message: `Your assignment "${assignment.title}" has been graded. You received ${marksAwarded} marks.${feedback ? ` Feedback: ${feedback}` : ''}`,
+    }).returning();
+    emitToUser(submission.studentId, { id: notif.id, title: notif.title, message: notif.message, type: 'assignment', createdAt: new Date().toISOString(), isRead: false });
+  }
 
   res.json({ success: true, message: 'Submission graded' });
 }));

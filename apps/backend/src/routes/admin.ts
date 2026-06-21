@@ -4,6 +4,7 @@ import { db, schema } from '../db/index.js';
 import { hashPassword } from '../utils/password.js';
 import { authenticate, requireAdmin } from '../middleware/auth.js';
 import { asyncHandler, ApiError } from '../middleware/error.js';
+import { emitToUser, emitToUsers } from '../ws/wsManager.js';
 
 async function logAudit(userId: string | undefined, userRole: string | undefined, action: string, entity: string, entityId?: string, details?: string, ipAddress?: string) {
   try {
@@ -489,6 +490,27 @@ router.get('/tests', asyncHandler(async (req, res) => {
   res.json({ success: true, data, pagination: paginationMeta(total, page, limit) });
 }));
 
+router.get('/tests/:testId/results', asyncHandler(async (req, res) => {
+  const [test] = await db
+    .select({ id: schema.tests.id, title: schema.tests.title, totalMarks: schema.tests.totalMarks, passingMarks: schema.tests.passingMarks })
+    .from(schema.tests).where(eq(schema.tests.id, req.params.testId)).limit(1);
+  if (!test) throw new ApiError(404, 'Test not found');
+
+  const results = await db
+    .select({
+      id: schema.testResults.id, marksObtained: schema.testResults.marksObtained,
+      percentage: schema.testResults.percentage, status: schema.testResults.status,
+      submittedAt: schema.testResults.submittedAt, remarks: schema.testResults.remarks,
+      studentName: schema.users.name, studentEmail: schema.users.email,
+    })
+    .from(schema.testResults)
+    .leftJoin(schema.users, eq(schema.testResults.studentId, schema.users.id))
+    .where(eq(schema.testResults.testId, req.params.testId))
+    .orderBy(desc(schema.testResults.submittedAt));
+
+  res.json({ success: true, data: results, test });
+}));
+
 // ── Fees ───────────────────────────────────────────────────────────────────
 router.get('/fees', asyncHandler(async (req, res) => {
   const { page, limit, offset, search, order } = parsePagination(req.query);
@@ -554,6 +576,16 @@ router.post('/fees/:feeId/payments', asyncHandler(async (req, res) => {
     paymentMode, transactionId, receiptNumber, notes, recordedBy: req.user!.id,
   }).returning();
   await logAudit(req.user!.id, req.user!.role, 'CREATE', 'payment', payment.id, `₹${amount} recorded for feeId=${fee.id}`, req.ip);
+
+  // Notify student of payment receipt via SSE + DB notification
+  const amountFormatted = `₹${Number(amount).toLocaleString('en-IN')}`;
+  const [notif] = await db.insert(schema.notifications).values({
+    receiverId: fee.studentId, senderId: req.user!.id, type: 'fee',
+    title: 'Payment Received',
+    message: `${amountFormatted} payment recorded via ${paymentMode || 'cash'}. Receipt #${receiptNumber || payment.id.slice(-6).toUpperCase()}.`,
+  }).returning();
+  emitToUser(fee.studentId, { id: notif.id, title: notif.title, message: notif.message, type: 'fee', createdAt: new Date().toISOString(), isRead: false });
+
   res.status(201).json({ success: true, data: payment });
 }));
 
@@ -644,9 +676,12 @@ router.post('/notifications/broadcast', asyncHandler(async (req, res) => {
   }
 
   if (targetUsers.length) {
-    await db.insert(schema.notifications).values(
+    const inserted = await db.insert(schema.notifications).values(
       targetUsers.map(u => ({ receiverId: u.id, senderId: req.user!.id, type, title, message }))
-    );
+    ).returning();
+    // Push SSE to all recipients who are currently connected
+    const event = { id: inserted[0]?.id, title, message, type, createdAt: new Date().toISOString(), isRead: false };
+    emitToUsers(targetUsers.map(u => u.id), event);
   }
   await logAudit(req.user!.id, req.user!.role, 'BROADCAST', 'notification', undefined, `"${title}" → ${targetUsers.length} users`, req.ip);
   res.json({ success: true, message: `Sent to ${targetUsers.length} users` });

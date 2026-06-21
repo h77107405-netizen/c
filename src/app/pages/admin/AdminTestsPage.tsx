@@ -5,7 +5,8 @@ import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../components/ui/table';
-import { Loader2, RefreshCw, ClipboardList, Search, X } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../../components/ui/dialog';
+import { Loader2, RefreshCw, ClipboardList, Search, X, BarChart2, Trophy, Users } from 'lucide-react';
 import { api } from '../../lib/api';
 import { TablePagination } from '../../components/shared/TablePagination';
 
@@ -19,6 +20,10 @@ export const AdminTestsPage: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState('');
   const [page, setPage] = useState(1);
   const searchDebounce = useRef<ReturnType<typeof setTimeout>>();
+
+  const [resultsTest, setResultsTest] = useState<any>(null);
+  const [results, setResults] = useState<any[]>([]);
+  const [resultsLoading, setResultsLoading] = useState(false);
 
   const load = useCallback((p = page, s = search, st = statusFilter) => {
     setLoading(true);
@@ -48,6 +53,25 @@ export const AdminTestsPage: React.FC = () => {
     setStatusFilter(val === 'all' ? '' : val);
     setPage(1);
   };
+
+  const handleViewResults = async (test: any) => {
+    setResultsTest(test);
+    setResults([]);
+    setResultsLoading(true);
+    try {
+      const r = await api.admin.getTestResults(test.id);
+      if (r.success) setResults(r.data);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setResultsLoading(false);
+    }
+  };
+
+  const avgScore = results.length
+    ? Math.round(results.reduce((s, r) => s + Number(r.percentage || 0), 0) / results.length)
+    : 0;
+  const passCount = results.filter(r => r.status === 'pass').length;
 
   return (
     <div className="space-y-6">
@@ -117,6 +141,7 @@ export const AdminTestsPage: React.FC = () => {
                       <TableHead>Duration</TableHead>
                       <TableHead>Start Date</TableHead>
                       <TableHead>Status</TableHead>
+                      <TableHead>Results</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -135,11 +160,22 @@ export const AdminTestsPage: React.FC = () => {
                             {t.status}
                           </Badge>
                         </TableCell>
+                        <TableCell>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleViewResults(t)}
+                            className="flex items-center gap-1"
+                          >
+                            <BarChart2 className="h-3 w-3" />
+                            Results
+                          </Button>
+                        </TableCell>
                       </TableRow>
                     ))}
                     {tests.length === 0 && (
                       <TableRow>
-                        <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                        <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
                           {search || statusFilter ? 'No tests match your filters' : 'No tests created yet'}
                         </TableCell>
                       </TableRow>
@@ -155,6 +191,100 @@ export const AdminTestsPage: React.FC = () => {
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={!!resultsTest} onOpenChange={(open) => { if (!open) setResultsTest(null); }}>
+        <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <BarChart2 className="h-5 w-5 text-blue-600" />
+              Results — {resultsTest?.title}
+            </DialogTitle>
+          </DialogHeader>
+
+          {resultsLoading ? (
+            <div className="text-center py-12"><Loader2 className="h-8 w-8 animate-spin mx-auto text-blue-600" /></div>
+          ) : (
+            <>
+              <div className="grid grid-cols-3 gap-3 mb-4">
+                <Card>
+                  <CardContent className="p-4 text-center">
+                    <Users className="h-4 w-4 mx-auto text-blue-600 mb-1" />
+                    <p className="text-2xl font-bold">{results.length}</p>
+                    <p className="text-xs text-muted-foreground">Attempts</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="p-4 text-center">
+                    <BarChart2 className="h-4 w-4 mx-auto text-purple-600 mb-1" />
+                    <p className="text-2xl font-bold text-purple-600">{avgScore}%</p>
+                    <p className="text-xs text-muted-foreground">Avg Score</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="p-4 text-center">
+                    <Trophy className="h-4 w-4 mx-auto text-green-600 mb-1" />
+                    <p className="text-2xl font-bold text-green-600">{passCount}</p>
+                    <p className="text-xs text-muted-foreground">Passed</p>
+                  </CardContent>
+                </Card>
+              </div>
+
+              <div className="border rounded-lg overflow-hidden">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Student</TableHead>
+                      <TableHead>Marks</TableHead>
+                      <TableHead>Percentage</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Submitted</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {results.map((r) => (
+                      <TableRow key={r.id}>
+                        <TableCell>
+                          <div>
+                            <p className="font-medium text-sm">{r.studentName || '—'}</p>
+                            <p className="text-xs text-muted-foreground">{r.studentEmail || ''}</p>
+                          </div>
+                        </TableCell>
+                        <TableCell>{r.marksObtained}/{resultsTest?.totalMarks}</TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            <div className="w-16 bg-gray-100 rounded-full h-2">
+                              <div
+                                className={`h-2 rounded-full ${Number(r.percentage) >= 60 ? 'bg-green-500' : 'bg-red-400'}`}
+                                style={{ width: `${Math.min(100, Number(r.percentage))}%` }}
+                              />
+                            </div>
+                            <span className="text-sm">{Number(r.percentage).toFixed(1)}%</span>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant={r.status === 'pass' ? 'default' : 'destructive'}>
+                            {r.status}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          {r.submittedAt ? new Date(r.submittedAt).toLocaleDateString() : '—'}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                    {results.length === 0 && (
+                      <TableRow>
+                        <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                          No submissions yet for this test
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

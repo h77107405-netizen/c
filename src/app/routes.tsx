@@ -27,6 +27,7 @@ import { TeacherTestsPage } from './pages/teacher/TeacherTestsPage';
 import { AssignmentsPage } from './pages/teacher/AssignmentsPage';
 import { DoubtsPage } from './pages/teacher/DoubtsPage';
 import { AnalyticsPage } from './pages/teacher/AnalyticsPage';
+import { TeacherProfilePage } from './pages/teacher/TeacherProfilePage';
 
 // Student Pages
 import { StudentDashboard } from './pages/student/StudentDashboard';
@@ -118,6 +119,7 @@ export const router = createBrowserRouter([
       { path: 'assignments', element: <AssignmentsPage /> },
       { path: 'doubts', element: <DoubtsPage /> },
       { path: 'analytics', element: <AnalyticsPage /> },
+      { path: 'profile', element: <TeacherProfilePage /> },
     ],
   },
 

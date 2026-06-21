@@ -184,7 +184,7 @@ export const NotificationBroadcastPage: React.FC = () => {
         <CardContent className="space-y-2">
           {[
             { icon: '🔔', text: 'Notifications appear in the bell icon in the top bar for each recipient' },
-            { icon: '📱', text: 'Recipients see the notification instantly on their next page load or within 30 seconds' },
+            { icon: '📱', text: 'Recipients see the notification instantly in real-time via live connection — no refresh needed' },
             { icon: '✅', text: 'Recipients can mark notifications as read individually or all at once' },
           ].map((item, i) => (
             <div key={i} className="flex items-start gap-3 text-sm text-muted-foreground">
