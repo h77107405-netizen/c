@@ -55,6 +55,11 @@ export const api = {
     createBatch: (data: any) => request<any>('/admin/batches', { method: 'POST', body: JSON.stringify(data) }),
     updateBatch: (id: string, data: any) => request<any>(`/admin/batches/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     deleteBatch: (id: string) => request<any>(`/admin/batches/${id}`, { method: 'DELETE' }),
+    getBatchMembers: (id: string) => request<any>(`/admin/batches/${id}/members`),
+    addBatchTeacher: (id: string, teacherId: string) => request<any>(`/admin/batches/${id}/teachers`, { method: 'POST', body: JSON.stringify({ teacherId }) }),
+    removeBatchTeacher: (id: string, teacherId: string) => request<any>(`/admin/batches/${id}/teachers/${teacherId}`, { method: 'DELETE' }),
+    addBatchStudent: (id: string, studentId: string) => request<any>(`/admin/batches/${id}/students`, { method: 'POST', body: JSON.stringify({ studentId }) }),
+    removeBatchStudent: (id: string, studentId: string) => request<any>(`/admin/batches/${id}/students/${studentId}`, { method: 'DELETE' }),
     // Materials
     getMaterials: () => request<any>('/admin/materials'),
     createMaterial: (data: any) => request<any>('/admin/materials', { method: 'POST', body: JSON.stringify(data) }),

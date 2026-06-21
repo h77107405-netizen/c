@@ -203,6 +203,55 @@ router.delete('/batches/:id', asyncHandler(async (req, res) => {
   res.json({ success: true, message: 'Batch deleted' });
 }));
 
+// ── Batch Members ───────────────────────────────────────────────────────────
+router.get('/batches/:id/members', asyncHandler(async (req, res) => {
+  const [teachers, students] = await Promise.all([
+    db.select({ id: schema.users.id, name: schema.users.name, email: schema.users.email, phone: schema.users.phone })
+      .from(schema.batchTeachers)
+      .innerJoin(schema.users, eq(schema.batchTeachers.teacherId, schema.users.id))
+      .where(eq(schema.batchTeachers.batchId, req.params.id)),
+    db.select({ id: schema.users.id, name: schema.users.name, email: schema.users.email, phone: schema.users.phone })
+      .from(schema.batchStudents)
+      .innerJoin(schema.users, eq(schema.batchStudents.studentId, schema.users.id))
+      .where(eq(schema.batchStudents.batchId, req.params.id)),
+  ]);
+  res.json({ success: true, data: { teachers, students } });
+}));
+
+router.post('/batches/:id/teachers', asyncHandler(async (req, res) => {
+  const { teacherId } = req.body;
+  if (!teacherId) throw new ApiError(400, 'teacherId is required');
+  const existing = await db.select().from(schema.batchTeachers)
+    .where(and(eq(schema.batchTeachers.batchId, req.params.id), eq(schema.batchTeachers.teacherId, teacherId)))
+    .limit(1);
+  if (existing.length) throw new ApiError(409, 'Teacher already in this batch');
+  await db.insert(schema.batchTeachers).values({ batchId: req.params.id, teacherId });
+  res.json({ success: true, message: 'Teacher added to batch' });
+}));
+
+router.delete('/batches/:id/teachers/:teacherId', asyncHandler(async (req, res) => {
+  await db.delete(schema.batchTeachers)
+    .where(and(eq(schema.batchTeachers.batchId, req.params.id), eq(schema.batchTeachers.teacherId, req.params.teacherId)));
+  res.json({ success: true, message: 'Teacher removed from batch' });
+}));
+
+router.post('/batches/:id/students', asyncHandler(async (req, res) => {
+  const { studentId } = req.body;
+  if (!studentId) throw new ApiError(400, 'studentId is required');
+  const existing = await db.select().from(schema.batchStudents)
+    .where(and(eq(schema.batchStudents.batchId, req.params.id), eq(schema.batchStudents.studentId, studentId)))
+    .limit(1);
+  if (existing.length) throw new ApiError(409, 'Student already in this batch');
+  await db.insert(schema.batchStudents).values({ batchId: req.params.id, studentId });
+  res.json({ success: true, message: 'Student added to batch' });
+}));
+
+router.delete('/batches/:id/students/:studentId', asyncHandler(async (req, res) => {
+  await db.delete(schema.batchStudents)
+    .where(and(eq(schema.batchStudents.batchId, req.params.id), eq(schema.batchStudents.studentId, req.params.studentId)));
+  res.json({ success: true, message: 'Student removed from batch' });
+}));
+
 // ── Materials ──────────────────────────────────────────────────────────────
 router.get('/materials', asyncHandler(async (req, res) => {
   const data = await db
