@@ -245,6 +245,19 @@ export const payments = pgTable('payments', {
   notes: text('notes'),
 });
 
+// ── Audit Logs ─────────────────────────────────────────────────────────────
+export const auditLogs = pgTable('audit_logs', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').references(() => users.id),
+  userRole: text('user_role'),
+  action: text('action').notNull(),
+  entity: text('entity').notNull(),
+  entityId: text('entity_id'),
+  details: text('details'),
+  ipAddress: text('ip_address'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
 // ── Settings ───────────────────────────────────────────────────────────────
 export const settings = pgTable('settings', {
   key: text('key').primaryKey(),

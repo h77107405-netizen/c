@@ -41,10 +41,11 @@ export const StudentTestsPage: React.FC = () => {
       .finally(() => setLoading(false));
   }, []);
 
+  const AUTOSAVE_KEY = (testId: string) => `test_autosave_${testId}`;
+
   const startTest = async (test: any) => {
     setQLoading(true);
     setActiveTest(test);
-    setAnswers({});
     setCurrentQ(0);
     setResult(null);
     setConfirmSubmit(false);
@@ -55,6 +56,9 @@ export const StudentTestsPage: React.FC = () => {
         return;
       }
       setQuestions(r.data);
+      // Restore autosaved answers if available
+      const saved = localStorage.getItem(AUTOSAVE_KEY(test.id));
+      setAnswers(saved ? JSON.parse(saved) : {});
       setTimeLeft((test.duration || 60) * 60);
       setTestOpen(true);
     } catch (err: any) {
@@ -63,6 +67,13 @@ export const StudentTestsPage: React.FC = () => {
       setQLoading(false);
     }
   };
+
+  // Autosave answers to localStorage every time answers change
+  useEffect(() => {
+    if (activeTest && testOpen && !result && Object.keys(answers).length > 0) {
+      localStorage.setItem(AUTOSAVE_KEY(activeTest.id), JSON.stringify(answers));
+    }
+  }, [answers, activeTest, testOpen, result]);
 
   // Timer countdown
   useEffect(() => {
@@ -91,6 +102,8 @@ export const StudentTestsPage: React.FC = () => {
       }));
       const r = await api.student.submitTest(activeTest.id, payload);
       if (r.success) {
+        // Clear autosaved answers after successful submission
+        localStorage.removeItem(AUTOSAVE_KEY(activeTest.id));
         setResult(r.data);
         if (autoSubmit) toast.info('Time is up! Your answers were submitted automatically.');
         else toast.success('Test submitted!');

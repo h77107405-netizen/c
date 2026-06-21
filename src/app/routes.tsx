@@ -15,6 +15,8 @@ import { AdminMaterialsPage } from './pages/admin/AdminMaterialsPage';
 import { AdminTestsPage } from './pages/admin/AdminTestsPage';
 import { FeesPage } from './pages/admin/FeesPage';
 import { SettingsPage } from './pages/admin/SettingsPage';
+import { NotificationBroadcastPage } from './pages/admin/NotificationBroadcastPage';
+import { AuditLogsPage } from './pages/admin/AuditLogsPage';
 
 // Teacher Pages
 import { TeacherDashboard } from './pages/teacher/TeacherDashboard';
@@ -93,6 +95,8 @@ export const router = createBrowserRouter([
       { path: 'materials', element: <AdminMaterialsPage /> },
       { path: 'tests', element: <AdminTestsPage /> },
       { path: 'fees', element: <FeesPage /> },
+      { path: 'broadcast', element: <NotificationBroadcastPage /> },
+      { path: 'audit-logs', element: <AuditLogsPage /> },
       { path: 'settings', element: <SettingsPage /> },
     ],
   },

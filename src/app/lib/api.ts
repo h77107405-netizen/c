@@ -76,6 +76,16 @@ export const api = {
     createCourse: (data: any) => request<any>('/admin/courses', { method: 'POST', body: JSON.stringify(data) }),
     updateCourse: (id: string, data: any) => request<any>(`/admin/courses/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     deleteCourse: (id: string) => request<any>(`/admin/courses/${id}`, { method: 'DELETE' }),
+    // Subjects
+    getSubjects: (courseId: string) => request<any>(`/admin/courses/${courseId}/subjects`),
+    createSubject: (courseId: string, data: any) => request<any>(`/admin/courses/${courseId}/subjects`, { method: 'POST', body: JSON.stringify(data) }),
+    updateSubject: (courseId: string, subId: string, data: any) => request<any>(`/admin/courses/${courseId}/subjects/${subId}`, { method: 'PUT', body: JSON.stringify(data) }),
+    deleteSubject: (courseId: string, subId: string) => request<any>(`/admin/courses/${courseId}/subjects/${subId}`, { method: 'DELETE' }),
+    // Chapters
+    getChapters: (subjectId: string) => request<any>(`/admin/subjects/${subjectId}/chapters`),
+    createChapter: (subjectId: string, data: any) => request<any>(`/admin/subjects/${subjectId}/chapters`, { method: 'POST', body: JSON.stringify(data) }),
+    updateChapter: (subjectId: string, chapterId: string, data: any) => request<any>(`/admin/subjects/${subjectId}/chapters/${chapterId}`, { method: 'PUT', body: JSON.stringify(data) }),
+    deleteChapter: (subjectId: string, chapterId: string) => request<any>(`/admin/subjects/${subjectId}/chapters/${chapterId}`, { method: 'DELETE' }),
     // Batches
     getBatches: () => request<any>('/admin/batches'),
     createBatch: (data: any) => request<any>('/admin/batches', { method: 'POST', body: JSON.stringify(data) }),
@@ -98,9 +108,20 @@ export const api = {
     getFees: () => request<any>('/admin/fees'),
     createFee: (data: any) => request<any>('/admin/fees', { method: 'POST', body: JSON.stringify(data) }),
     recordPayment: (feeId: string, data: any) => request<any>(`/admin/fees/${feeId}/payments`, { method: 'POST', body: JSON.stringify(data) }),
+    getFeeReceipt: (feeId: string) => request<any>(`/admin/fees/${feeId}/receipt`),
     // Settings
     getSettings: () => request<any>('/admin/settings'),
     saveSettings: (data: Record<string, string>) => request<any>('/admin/settings', { method: 'PUT', body: JSON.stringify(data) }),
+    // Notifications broadcast
+    broadcastNotification: (data: any) => request<any>('/admin/notifications/broadcast', { method: 'POST', body: JSON.stringify(data) }),
+    // Audit Logs
+    getAuditLogs: (params?: { limit?: number; offset?: number; entity?: string }) => {
+      const q = new URLSearchParams();
+      if (params?.limit) q.set('limit', String(params.limit));
+      if (params?.offset) q.set('offset', String(params.offset));
+      if (params?.entity) q.set('entity', params.entity);
+      return request<any>(`/admin/audit-logs?${q}`);
+    },
   },
 
   // Teacher
@@ -122,6 +143,9 @@ export const api = {
     getTestResults: (testId: string) => request<any>(`/teacher/tests/${testId}/results`),
     getAssignments: () => request<any>('/teacher/assignments'),
     createAssignment: (data: any) => request<any>('/teacher/assignments', { method: 'POST', body: JSON.stringify(data) }),
+    getAssignmentSubmissions: (assignmentId: string) => request<any>(`/teacher/assignments/${assignmentId}/submissions`),
+    gradeSubmission: (assignmentId: string, submissionId: string, data: any) =>
+      request<any>(`/teacher/assignments/${assignmentId}/submissions/${submissionId}/grade`, { method: 'PATCH', body: JSON.stringify(data) }),
     getDoubts: () => request<any>('/teacher/doubts'),
     replyDoubt: (doubtId: string, reply: string) => request<any>(`/teacher/doubts/${doubtId}/reply`, { method: 'POST', body: JSON.stringify({ reply }) }),
   },

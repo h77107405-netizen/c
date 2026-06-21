@@ -1,9 +1,15 @@
 import { Router } from 'express';
-import { eq, desc, count, sql, and, ne } from 'drizzle-orm';
+import { eq, desc, count, sql, and, ne, ilike, or } from 'drizzle-orm';
 import { db, schema } from '../db/index.js';
 import { hashPassword } from '../utils/password.js';
 import { authenticate, requireAdmin } from '../middleware/auth.js';
 import { asyncHandler, ApiError } from '../middleware/error.js';
+
+async function logAudit(userId: string | undefined, userRole: string | undefined, action: string, entity: string, entityId?: string, details?: string, ipAddress?: string) {
+  try {
+    await db.insert(schema.auditLogs).values({ userId, userRole, action, entity, entityId, details, ipAddress });
+  } catch {} // never block request for logging
+}
 
 const router = Router();
 router.use(authenticate, requireAdmin);
@@ -377,7 +383,131 @@ router.post('/fees/:feeId/payments', asyncHandler(async (req, res) => {
     feeId: fee.id, studentId: fee.studentId, amount: amount.toString(),
     paymentMode, transactionId, receiptNumber, notes, recordedBy: req.user!.id,
   }).returning();
+  await logAudit(req.user!.id, req.user!.role, 'CREATE', 'payment', payment.id, `₹${amount} recorded for feeId=${fee.id}`, req.ip);
   res.status(201).json({ success: true, data: payment });
+}));
+
+// ── Fee Receipt ─────────────────────────────────────────────────────────────
+router.get('/fees/:feeId/receipt', asyncHandler(async (req, res) => {
+  const [fee] = await db
+    .select({
+      id: schema.fees.id, totalAmount: schema.fees.totalAmount, discount: schema.fees.discount,
+      finalAmount: schema.fees.finalAmount, dueDate: schema.fees.dueDate, createdAt: schema.fees.createdAt,
+      courseName: schema.courses.name, studentName: schema.users.name, studentEmail: schema.users.email,
+    })
+    .from(schema.fees)
+    .leftJoin(schema.courses, eq(schema.fees.courseId, schema.courses.id))
+    .leftJoin(schema.users, eq(schema.fees.studentId, schema.users.id))
+    .where(eq(schema.fees.id, req.params.feeId))
+    .limit(1);
+  if (!fee) throw new ApiError(404, 'Fee not found');
+  const payments = await db.select().from(schema.payments).where(eq(schema.payments.feeId, req.params.feeId)).orderBy(desc(schema.payments.paidAt));
+  res.json({ success: true, data: { fee, payments } });
+}));
+
+// ── Subjects (per course) ───────────────────────────────────────────────────
+router.get('/courses/:courseId/subjects', asyncHandler(async (req, res) => {
+  const data = await db.select().from(schema.subjects).where(eq(schema.subjects.courseId, req.params.courseId)).orderBy(schema.subjects.order);
+  res.json({ success: true, data });
+}));
+
+router.post('/courses/:courseId/subjects', asyncHandler(async (req, res) => {
+  const { name, description } = req.body;
+  if (!name) throw new ApiError(400, 'name is required');
+  const existing = await db.select({ order: schema.subjects.order }).from(schema.subjects).where(eq(schema.subjects.courseId, req.params.courseId)).orderBy(desc(schema.subjects.order)).limit(1);
+  const order = existing.length ? (existing[0].order ?? 0) + 1 : 1;
+  const [sub] = await db.insert(schema.subjects).values({ courseId: req.params.courseId, name, description, order }).returning();
+  await logAudit(req.user!.id, req.user!.role, 'CREATE', 'subject', sub.id, name, req.ip);
+  res.status(201).json({ success: true, data: sub });
+}));
+
+router.put('/courses/:courseId/subjects/:subId', asyncHandler(async (req, res) => {
+  const { name, description } = req.body;
+  await db.update(schema.subjects).set({ name, description }).where(eq(schema.subjects.id, req.params.subId));
+  res.json({ success: true, message: 'Subject updated' });
+}));
+
+router.delete('/courses/:courseId/subjects/:subId', asyncHandler(async (req, res) => {
+  await db.delete(schema.subjects).where(eq(schema.subjects.id, req.params.subId));
+  await logAudit(req.user!.id, req.user!.role, 'DELETE', 'subject', req.params.subId, undefined, req.ip);
+  res.json({ success: true, message: 'Subject deleted' });
+}));
+
+// ── Chapters (per subject) ──────────────────────────────────────────────────
+router.get('/subjects/:subjectId/chapters', asyncHandler(async (req, res) => {
+  const data = await db.select().from(schema.chapters).where(eq(schema.chapters.subjectId, req.params.subjectId)).orderBy(schema.chapters.order);
+  res.json({ success: true, data });
+}));
+
+router.post('/subjects/:subjectId/chapters', asyncHandler(async (req, res) => {
+  const { title, description, videoUrl, duration } = req.body;
+  if (!title) throw new ApiError(400, 'title is required');
+  const existing = await db.select({ order: schema.chapters.order }).from(schema.chapters).where(eq(schema.chapters.subjectId, req.params.subjectId)).orderBy(desc(schema.chapters.order)).limit(1);
+  const order = existing.length ? (existing[0].order ?? 0) + 1 : 1;
+  const [ch] = await db.insert(schema.chapters).values({ subjectId: req.params.subjectId, title, description, videoUrl, duration: duration ? parseInt(duration) : null, order }).returning();
+  res.status(201).json({ success: true, data: ch });
+}));
+
+router.put('/subjects/:subjectId/chapters/:chapterId', asyncHandler(async (req, res) => {
+  const { title, description, videoUrl, duration } = req.body;
+  await db.update(schema.chapters).set({ title, description, videoUrl, duration: duration ? parseInt(duration) : null }).where(eq(schema.chapters.id, req.params.chapterId));
+  res.json({ success: true, message: 'Chapter updated' });
+}));
+
+router.delete('/subjects/:subjectId/chapters/:chapterId', asyncHandler(async (req, res) => {
+  await db.delete(schema.chapters).where(eq(schema.chapters.id, req.params.chapterId));
+  res.json({ success: true, message: 'Chapter deleted' });
+}));
+
+// ── Notification Broadcast ──────────────────────────────────────────────────
+router.post('/notifications/broadcast', asyncHandler(async (req, res) => {
+  const { title, message, type = 'info', targetRole, batchId } = req.body;
+  if (!title || !message) throw new ApiError(400, 'title and message required');
+
+  let targetUsers: { id: string }[] = [];
+  if (batchId) {
+    const students = await db.select({ id: schema.batchStudents.studentId }).from(schema.batchStudents).where(eq(schema.batchStudents.batchId, batchId));
+    const teachers = await db.select({ id: schema.batchTeachers.teacherId }).from(schema.batchTeachers).where(eq(schema.batchTeachers.batchId, batchId));
+    targetUsers = [...students.map(s => ({ id: s.studentId })), ...teachers.map(t => ({ id: t.teacherId }))];
+  } else if (targetRole) {
+    targetUsers = await db.select({ id: schema.users.id }).from(schema.users).where(eq(schema.users.role, targetRole));
+  } else {
+    targetUsers = await db.select({ id: schema.users.id }).from(schema.users).where(ne(schema.users.role, 'admin'));
+  }
+
+  if (targetUsers.length) {
+    await db.insert(schema.notifications).values(
+      targetUsers.map(u => ({ receiverId: u.id, senderId: req.user!.id, type, title, message }))
+    );
+  }
+  await logAudit(req.user!.id, req.user!.role, 'BROADCAST', 'notification', undefined, `"${title}" → ${targetUsers.length} users`, req.ip);
+  res.json({ success: true, message: `Sent to ${targetUsers.length} users` });
+}));
+
+// ── Audit Logs ─────────────────────────────────────────────────────────────
+router.get('/audit-logs', asyncHandler(async (req, res) => {
+  const limit = parseInt(req.query.limit as string || '50');
+  const offset = parseInt(req.query.offset as string || '0');
+  const entity = req.query.entity as string;
+
+  const conditions = entity ? [eq(schema.auditLogs.entity, entity)] : [];
+
+  const data = await db
+    .select({
+      id: schema.auditLogs.id, action: schema.auditLogs.action, entity: schema.auditLogs.entity,
+      entityId: schema.auditLogs.entityId, details: schema.auditLogs.details,
+      ipAddress: schema.auditLogs.ipAddress, createdAt: schema.auditLogs.createdAt,
+      userName: schema.users.name, userRole: schema.auditLogs.userRole,
+    })
+    .from(schema.auditLogs)
+    .leftJoin(schema.users, eq(schema.auditLogs.userId, schema.users.id))
+    .where(conditions.length ? and(...conditions) : undefined)
+    .orderBy(desc(schema.auditLogs.createdAt))
+    .limit(limit)
+    .offset(offset);
+
+  const [{ total }] = await db.select({ total: count() }).from(schema.auditLogs);
+  res.json({ success: true, data, total });
 }));
 
 export default router;

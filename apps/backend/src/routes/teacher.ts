@@ -194,6 +194,50 @@ router.post('/assignments', asyncHandler(async (req, res) => {
   res.status(201).json({ success: true, data: asgn });
 }));
 
+// ── Assignment Submissions / Grading ───────────────────────────────────────
+router.get('/assignments/:id/submissions', asyncHandler(async (req, res) => {
+  const [assignment] = await db.select().from(schema.assignments)
+    .where(and(eq(schema.assignments.id, req.params.id), eq(schema.assignments.teacherId, req.user!.id))).limit(1);
+  if (!assignment) throw new ApiError(404, 'Assignment not found');
+
+  const data = await db
+    .select({
+      id: schema.assignmentSubmissions.id,
+      studentId: schema.assignmentSubmissions.studentId,
+      studentName: schema.users.name,
+      studentEmail: schema.users.email,
+      submissionText: schema.assignmentSubmissions.submissionText,
+      submissionUrl: schema.assignmentSubmissions.submissionUrl,
+      submittedAt: schema.assignmentSubmissions.submittedAt,
+      status: schema.assignmentSubmissions.status,
+      marksAwarded: schema.assignmentSubmissions.marksAwarded,
+      feedback: schema.assignmentSubmissions.feedback,
+      gradedAt: schema.assignmentSubmissions.gradedAt,
+    })
+    .from(schema.assignmentSubmissions)
+    .leftJoin(schema.users, eq(schema.assignmentSubmissions.studentId, schema.users.id))
+    .where(eq(schema.assignmentSubmissions.assignmentId, req.params.id))
+    .orderBy(desc(schema.assignmentSubmissions.submittedAt));
+
+  res.json({ success: true, data, assignment });
+}));
+
+router.patch('/assignments/:id/submissions/:submissionId/grade', asyncHandler(async (req, res) => {
+  const { marksAwarded, feedback } = req.body;
+  if (marksAwarded === undefined) throw new ApiError(400, 'marksAwarded is required');
+
+  const [assignment] = await db.select().from(schema.assignments)
+    .where(and(eq(schema.assignments.id, req.params.id), eq(schema.assignments.teacherId, req.user!.id))).limit(1);
+  if (!assignment) throw new ApiError(403, 'Not your assignment');
+
+  await db.update(schema.assignmentSubmissions).set({
+    marksAwarded: parseInt(marksAwarded), feedback, status: 'graded',
+    gradedAt: new Date(), gradedBy: req.user!.id,
+  }).where(eq(schema.assignmentSubmissions.id, req.params.submissionId));
+
+  res.json({ success: true, message: 'Submission graded' });
+}));
+
 // ── Doubts ─────────────────────────────────────────────────────────────────
 router.get('/doubts', asyncHandler(async (req, res) => {
   const data = await db

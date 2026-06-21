@@ -1,6 +1,8 @@
 import express from 'express';
 import cors from 'cors';
 import path from 'path';
+import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
 import { config, validateEnv } from './config/env.js';
 import { connectDatabase } from './config/database.js';
 import routes from './routes/index.js';
@@ -10,15 +12,30 @@ validateEnv();
 
 const app = express();
 
+// Trust proxy (needed for Replit + rate limiting to correctly identify clients)
+app.set('trust proxy', 1);
+
+// Security headers
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: 'cross-origin' },
+  contentSecurityPolicy: false, // managed separately in prod
+}));
+
 app.use(cors({ origin: '*', credentials: true }));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// Rate limiting
+const limiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 500, standardHeaders: true, legacyHeaders: false });
+const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 20, standardHeaders: true, legacyHeaders: false });
+app.use('/api', limiter);
+app.use('/api/auth/login', authLimiter);
 
 // Serve uploaded files
 app.use('/api/uploads', express.static(path.join(process.cwd(), 'uploads')));
 
 if (config.nodeEnv === 'development') {
-  app.use((req, res, next) => {
+  app.use((req, _res, next) => {
     console.log(`${req.method} ${req.path}`);
     next();
   });
@@ -26,7 +43,7 @@ if (config.nodeEnv === 'development') {
 
 app.use('/api', routes);
 
-app.get('/', (req, res) => {
+app.get('/', (_req, res) => {
   res.json({ message: 'Coaching Platform API', version: '1.0.0' });
 });
 
