@@ -216,6 +216,34 @@ router.post('/doubts/:id/reply', asyncHandler(async (req, res) => {
   res.json({ success: true, message: 'Reply posted' });
 }));
 
+// ── Test Questions ─────────────────────────────────────────────────────────
+router.get('/tests/:id/questions', asyncHandler(async (req, res) => {
+  const data = await db
+    .select()
+    .from(schema.questions)
+    .where(eq(schema.questions.testId, req.params.id))
+    .orderBy(schema.questions.order);
+  res.json({ success: true, data });
+}));
+
+router.post('/tests/:id/questions', asyncHandler(async (req, res) => {
+  const { questions: qs } = req.body;
+  if (!qs?.length) throw new ApiError(400, 'questions array is required');
+  await db.delete(schema.questions).where(eq(schema.questions.testId, req.params.id));
+  const inserted = await db.insert(schema.questions).values(
+    qs.map((q: any, i: number) => ({
+      testId: req.params.id,
+      questionText: q.questionText,
+      questionType: q.questionType || 'mcq',
+      marks: parseInt(q.marks || '1'),
+      options: q.options,
+      correctAnswer: q.correctAnswer,
+      order: i,
+    }))
+  ).returning();
+  res.json({ success: true, data: inserted });
+}));
+
 // ── Test Results ───────────────────────────────────────────────────────────
 router.get('/tests/:testId/results', asyncHandler(async (req, res) => {
   const data = await db

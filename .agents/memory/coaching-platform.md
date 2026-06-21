@@ -12,6 +12,7 @@ description: Key decisions, API shapes, and deployment facts for the Coaching Ma
 ## Auth
 - JWT tokens stored in `localStorage` under key `token`
 - Login: `POST /api/auth/login` → `{ success, token, user }`
+- JWT_SECRET stored in Replit Secrets (never hardcode in production)
 - Demo credentials: admin@demo.com/Admin@123, teacher@demo.com/Teacher@123, student@demo.com/Student@123
 - Seed: `POST /api/seed/demo` (also wired as button on login page)
 
@@ -30,4 +31,21 @@ description: Key decisions, API shapes, and deployment facts for the Coaching Ma
 - Run `npm run db:push` to push schema changes
 - `drizzle.config.ts` at root reads `DATABASE_URL` env var
 
-**Why:** Future sessions won't have to re-discover these mismatches or wonder about the concurrently setup.
+## Test System (fully implemented)
+- Teacher: create test (title, batch, marks, duration) → add MCQ questions via question builder dialog → publish
+- Questions stored in `questions` table: questionText, options (JSONB string array), correctAnswer (label "A"/"B"/"C"/"D"), marks
+- Backend routes: `GET/POST /api/teacher/tests/:id/questions`
+- Student: lists published tests → "Start Test" opens full-screen modal with countdown timer, question nav, MCQ options, confirm-submit
+- Auto-scoring: backend iterates MCQ questions, matches selectedAnswer label to correctAnswer, tallies marks
+- Backend routes: `GET /api/student/tests/:testId/questions`, `POST /api/student/tests/:testId/submit`
+- Result returned immediately: `{ marksObtained, totalMarks, percentage, passed }`
+- api.ts: `teacher.getTestQuestions`, `teacher.saveTestQuestions`, `student.getTestQuestions`, `student.submitTest`
+
+## What's Still Missing / Next to Build
+1. Admin batch UI: assign teachers/students to batches (backend supports it, UI does not)
+2. Teacher analytics: wire real data (currently placeholder charts)
+3. Notification system: schema exists, no sending logic
+4. Cloudinary file uploads for materials (currently URL-only input)
+5. Admin settings persistence (UI-only, no DB)
+
+**Why:** Future sessions won't have to re-discover these mismatches or wonder about the concurrently setup or test flow.
