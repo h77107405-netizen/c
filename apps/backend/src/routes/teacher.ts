@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { eq, desc, count, and } from 'drizzle-orm';
+import { eq, desc, count, and, sql, inArray } from 'drizzle-orm';
 import { db, schema } from '../db/index.js';
 import { authenticate, requireTeacher } from '../middleware/auth.js';
 import { asyncHandler, ApiError } from '../middleware/error.js';
@@ -262,11 +262,7 @@ router.post('/doubts/:id/reply', asyncHandler(async (req, res) => {
 
 // ── Test Questions ─────────────────────────────────────────────────────────
 router.get('/tests/:id/questions', asyncHandler(async (req, res) => {
-  const data = await db
-    .select()
-    .from(schema.questions)
-    .where(eq(schema.questions.testId, req.params.id))
-    .orderBy(schema.questions.order);
+  const data = await db.select().from(schema.questions).where(eq(schema.questions.testId, req.params.id)).orderBy(schema.questions.order);
   res.json({ success: true, data });
 }));
 
@@ -288,14 +284,12 @@ router.post('/tests/:id/questions', asyncHandler(async (req, res) => {
   res.json({ success: true, data: inserted });
 }));
 
-// ── Analytics ──────────────────────────────────────────────────────────────
+// ── Analytics (N+1 fixed) ──────────────────────────────────────────────────
 router.get('/analytics', asyncHandler(async (req, res) => {
   const teacherId = req.user!.id;
 
-  const [batchRows, materialCount, testRows, doubtRows, liveClassCount] = await Promise.all([
-    db.select({
-      id: schema.batches.id, name: schema.batches.name,
-    })
+  const [batchRows, [{ total: totalMaterials }], testRows, [{ total: totalDoubts }], [{ total: totalLiveClasses }], [{ total: pendingDoubts }]] = await Promise.all([
+    db.select({ id: schema.batches.id, name: schema.batches.name })
       .from(schema.batchTeachers)
       .innerJoin(schema.batches, eq(schema.batchTeachers.batchId, schema.batches.id))
       .where(eq(schema.batchTeachers.teacherId, teacherId)),
@@ -304,43 +298,64 @@ router.get('/analytics', asyncHandler(async (req, res) => {
       .from(schema.tests).where(eq(schema.tests.teacherId, teacherId)).orderBy(desc(schema.tests.createdAt)),
     db.select({ total: count() }).from(schema.doubts),
     db.select({ total: count() }).from(schema.liveClasses).where(eq(schema.liveClasses.teacherId, teacherId)),
+    db.select({ total: count() }).from(schema.doubts).where(eq(schema.doubts.status, 'open')),
   ]);
 
-  // Students per batch
-  const batchesWithStudents = await Promise.all(
-    batchRows.map(async (b) => {
-      const [{ total }] = await db.select({ total: count() }).from(schema.batchStudents).where(eq(schema.batchStudents.batchId, b.id));
-      return { ...b, studentCount: total };
-    })
-  );
+  // Fix N+1: get all batch student counts in a single query using SQL aggregation
+  const batchIds = batchRows.map(b => b.id);
+  let batchesWithStudents = batchRows.map(b => ({ ...b, studentCount: 0 }));
+
+  if (batchIds.length > 0) {
+    const batchCounts = await db
+      .select({
+        batchId: schema.batchStudents.batchId,
+        studentCount: count(),
+      })
+      .from(schema.batchStudents)
+      .where(inArray(schema.batchStudents.batchId, batchIds))
+      .groupBy(schema.batchStudents.batchId);
+
+    const countMap = new Map(batchCounts.map(r => [r.batchId, r.studentCount]));
+    batchesWithStudents = batchRows.map(b => ({ ...b, studentCount: countMap.get(b.id) ?? 0 }));
+  }
+
   const totalStudents = batchesWithStudents.reduce((s, b) => s + b.studentCount, 0);
 
-  // Test results summary per test
-  const testResultSummary = await Promise.all(
-    testRows.slice(0, 6).map(async (t) => {
-      const results = await db.select({ marksObtained: schema.testResults.marksObtained, percentage: schema.testResults.percentage })
-        .from(schema.testResults).where(eq(schema.testResults.testId, t.id));
-      const avg = results.length ? results.reduce((s, r) => s + Number(r.percentage), 0) / results.length : 0;
-      return { testTitle: t.title, attempts: results.length, avgScore: Math.round(avg) };
-    })
-  );
+  // Fix N+1: get all test result summaries in a single query using SQL aggregation
+  const recentTests = testRows.slice(0, 6);
+  const testResultSummary: { testTitle: string; attempts: number; avgScore: number }[] = [];
 
-  const [pendingDoubts] = await db.select({ total: count() }).from(schema.doubts).where(eq(schema.doubts.status, 'open'));
-  const resolvedDoubts = doubtRows[0].total - pendingDoubts.total;
+  if (recentTests.length > 0) {
+    const testIds = recentTests.map(t => t.id);
+    const resultAggregates = await db
+      .select({
+        testId: schema.testResults.testId,
+        attempts: count(),
+        avgScore: sql<number>`ROUND(AVG(${schema.testResults.percentage}), 1)`,
+      })
+      .from(schema.testResults)
+      .where(inArray(schema.testResults.testId, testIds))
+      .groupBy(schema.testResults.testId);
+
+    const resultMap = new Map(resultAggregates.map(r => [r.testId, r]));
+    for (const t of recentTests) {
+      const agg = resultMap.get(t.id);
+      testResultSummary.push({
+        testTitle: t.title,
+        attempts: agg?.attempts ?? 0,
+        avgScore: agg?.avgScore ?? 0,
+      });
+    }
+  }
+
+  const resolvedDoubts = totalDoubts - pendingDoubts;
 
   res.json({
     success: true,
     data: {
-      totalStudents,
-      totalBatches: batchRows.length,
-      totalTests: testRows.length,
-      totalMaterials: materialCount[0].total,
-      totalLiveClasses: liveClassCount[0].total,
-      totalDoubts: doubtRows[0].total,
-      pendingDoubts: pendingDoubts.total,
-      resolvedDoubts,
-      batches: batchesWithStudents,
-      testResultSummary,
+      totalStudents, totalBatches: batchRows.length, totalTests: testRows.length,
+      totalMaterials, totalLiveClasses, totalDoubts, pendingDoubts, resolvedDoubts,
+      batches: batchesWithStudents, testResultSummary,
     },
   });
 }));

@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { eq, desc, and } from 'drizzle-orm';
+import { eq, desc, and, inArray } from 'drizzle-orm';
 import { db, schema } from '../db/index.js';
 import { authenticate, requireStudent } from '../middleware/auth.js';
 import { asyncHandler, ApiError } from '../middleware/error.js';
@@ -10,10 +10,6 @@ router.use(authenticate, requireStudent);
 // ── Dashboard ──────────────────────────────────────────────────────────────
 router.get('/dashboard', asyncHandler(async (req, res) => {
   const studentId = req.user!.id;
-
-  const [profile] = await db.select().from(schema.studentProfiles).where(eq(schema.studentProfiles.userId, studentId)).limit(1);
-  const myBatchIds = await db.select({ batchId: schema.batchStudents.batchId }).from(schema.batchStudents).where(eq(schema.batchStudents.studentId, studentId));
-  const batchIdList = myBatchIds.map(b => b.batchId);
 
   const [recentResults, upcomingClasses, recentMaterials, myFees] = await Promise.all([
     db.select({
@@ -124,12 +120,9 @@ router.get('/tests', asyncHandler(async (req, res) => {
 router.get('/tests/:testId/questions', asyncHandler(async (req, res) => {
   const questions = await db
     .select({
-      id: schema.questions.id,
-      questionText: schema.questions.questionText,
-      questionType: schema.questions.questionType,
-      marks: schema.questions.marks,
-      options: schema.questions.options,
-      order: schema.questions.order,
+      id: schema.questions.id, questionText: schema.questions.questionText,
+      questionType: schema.questions.questionType, marks: schema.questions.marks,
+      options: schema.questions.options, order: schema.questions.order,
     })
     .from(schema.questions)
     .where(eq(schema.questions.testId, req.params.testId))
@@ -164,19 +157,17 @@ router.post('/tests/:testId/submit', asyncHandler(async (req, res) => {
 
   const percentage = test.totalMarks > 0 ? (marksObtained / test.totalMarks) * 100 : 0;
 
-  const [result] = await db.insert(schema.testResults).values({
-    testId: req.params.testId,
-    studentId,
+  await db.insert(schema.testResults).values({
+    testId: req.params.testId, studentId,
     marksObtained: marksObtained.toString(),
     percentage: percentage.toFixed(2),
     status: 'graded',
-  }).returning();
+  });
 
   res.status(201).json({
     success: true,
     data: {
-      marksObtained,
-      totalMarks: test.totalMarks,
+      marksObtained, totalMarks: test.totalMarks,
       percentage: parseFloat(percentage.toFixed(2)),
       passed: test.passingMarks ? marksObtained >= test.passingMarks : null,
     },
@@ -238,7 +229,7 @@ router.post('/assignments/:id/submit', asyncHandler(async (req, res) => {
   res.json({ success: true, message: 'Assignment submitted' });
 }));
 
-// ── Doubts ─────────────────────────────────────────────────────────────────
+// ── Doubts (N+1 fixed) ─────────────────────────────────────────────────────
 router.get('/doubts', asyncHandler(async (req, res) => {
   const doubts = await db
     .select()
@@ -246,15 +237,28 @@ router.get('/doubts', asyncHandler(async (req, res) => {
     .where(eq(schema.doubts.studentId, req.user!.id))
     .orderBy(desc(schema.doubts.createdAt));
 
-  const withReplies = await Promise.all(doubts.map(async (d) => {
-    const replies = await db
-      .select({ id: schema.doubtReplies.id, reply: schema.doubtReplies.reply, createdAt: schema.doubtReplies.createdAt, teacherName: schema.users.name })
-      .from(schema.doubtReplies)
-      .leftJoin(schema.users, eq(schema.doubtReplies.teacherId, schema.users.id))
-      .where(eq(schema.doubtReplies.doubtId, d.id));
-    return { ...d, replies };
-  }));
+  if (!doubts.length) return res.json({ success: true, data: [] });
 
+  // Fix N+1: fetch all replies in one query, then group by doubtId
+  const doubtIds = doubts.map(d => d.id);
+  const allReplies = await db
+    .select({
+      id: schema.doubtReplies.id, doubtId: schema.doubtReplies.doubtId,
+      reply: schema.doubtReplies.reply, createdAt: schema.doubtReplies.createdAt,
+      teacherName: schema.users.name,
+    })
+    .from(schema.doubtReplies)
+    .leftJoin(schema.users, eq(schema.doubtReplies.teacherId, schema.users.id))
+    .where(inArray(schema.doubtReplies.doubtId, doubtIds));
+
+  const repliesByDoubt = new Map<string, typeof allReplies>();
+  for (const reply of allReplies) {
+    const list = repliesByDoubt.get(reply.doubtId) ?? [];
+    list.push(reply);
+    repliesByDoubt.set(reply.doubtId, list);
+  }
+
+  const withReplies = doubts.map(d => ({ ...d, replies: repliesByDoubt.get(d.id) ?? [] }));
   res.json({ success: true, data: withReplies });
 }));
 
@@ -267,21 +271,20 @@ router.post('/doubts', asyncHandler(async (req, res) => {
 
 // ── Fees ───────────────────────────────────────────────────────────────────
 router.get('/fees', asyncHandler(async (req, res) => {
-  const feesData = await db
-    .select({
+  const [feesData, paymentsData] = await Promise.all([
+    db.select({
       id: schema.fees.id, totalAmount: schema.fees.totalAmount, discount: schema.fees.discount,
       finalAmount: schema.fees.finalAmount, dueDate: schema.fees.dueDate, createdAt: schema.fees.createdAt,
       courseName: schema.courses.name,
     })
-    .from(schema.fees)
-    .leftJoin(schema.courses, eq(schema.fees.courseId, schema.courses.id))
-    .where(eq(schema.fees.studentId, req.user!.id));
-
-  const paymentsData = await db
-    .select()
-    .from(schema.payments)
-    .where(eq(schema.payments.studentId, req.user!.id))
-    .orderBy(desc(schema.payments.paidAt));
+      .from(schema.fees)
+      .leftJoin(schema.courses, eq(schema.fees.courseId, schema.courses.id))
+      .where(eq(schema.fees.studentId, req.user!.id)),
+    db.select()
+      .from(schema.payments)
+      .where(eq(schema.payments.studentId, req.user!.id))
+      .orderBy(desc(schema.payments.paidAt)),
+  ]);
 
   res.json({ success: true, data: { fees: feesData, payments: paymentsData } });
 }));

@@ -1,11 +1,13 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Card, CardContent } from '../../components/ui/card';
 import { Badge } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
+import { Input } from '../../components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../components/ui/table';
-import { Loader2, RefreshCw, ChevronLeft, ChevronRight, Shield } from 'lucide-react';
+import { Loader2, RefreshCw, Shield, Search, X } from 'lucide-react';
 import { api } from '../../lib/api';
+import { TablePagination } from '../../components/shared/TablePagination';
 
 const ACTION_COLORS: Record<string, string> = {
   CREATE: 'bg-green-100 text-green-700',
@@ -15,28 +17,52 @@ const ACTION_COLORS: Record<string, string> = {
   LOGIN: 'bg-gray-100 text-gray-700',
 };
 
-const ENTITY_OPTIONS = ['', 'student', 'teacher', 'course', 'batch', 'subject', 'material', 'payment', 'notification', 'fee'];
+const ENTITY_OPTIONS = ['student', 'teacher', 'course', 'batch', 'subject', 'material', 'payment', 'notification', 'fee'];
 
 const PAGE_SIZE = 20;
 
 export const AuditLogsPage: React.FC = () => {
   const [logs, setLogs] = useState<any[]>([]);
-  const [total, setTotal] = useState(0);
+  const [pagination, setPagination] = useState({ page: 1, limit: PAGE_SIZE, total: 0, totalPages: 1 });
   const [loading, setLoading] = useState(true);
-  const [page, setPage] = useState(0);
+  const [page, setPage] = useState(1);
   const [entity, setEntity] = useState('');
+  const [search, setSearch] = useState('');
+  const searchDebounce = useRef<ReturnType<typeof setTimeout>>();
 
-  const load = useCallback(() => {
+  const load = useCallback((p = page, ent = entity, s = search) => {
     setLoading(true);
-    api.admin.getAuditLogs({ limit: PAGE_SIZE, offset: page * PAGE_SIZE, entity: entity || undefined })
-      .then((r) => { if (r.success) { setLogs(r.data); setTotal(r.total); } })
+    api.admin.getAuditLogs({
+      page: p,
+      limit: PAGE_SIZE,
+      entity: ent || undefined,
+      search: s || undefined,
+    })
+      .then((r) => {
+        if (r.success) {
+          setLogs(r.data);
+          setPagination(r.pagination);
+        }
+      })
       .catch(console.error)
       .finally(() => setLoading(false));
-  }, [page, entity]);
+  }, [page, entity, search]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { load(); }, [page, entity]);
 
-  const totalPages = Math.ceil(total / PAGE_SIZE);
+  const handleSearchChange = (val: string) => {
+    setSearch(val);
+    clearTimeout(searchDebounce.current);
+    searchDebounce.current = setTimeout(() => {
+      setPage(1);
+      load(1, entity, val);
+    }, 400);
+  };
+
+  const handleEntityChange = (val: string) => {
+    setEntity(val === 'all' ? '' : val);
+    setPage(1);
+  };
 
   const relativeTime = (dateStr: string) => {
     const diff = Date.now() - new Date(dateStr).getTime();
@@ -57,21 +83,37 @@ export const AuditLogsPage: React.FC = () => {
             <Shield className="h-8 w-8 text-indigo-600" />
             Audit Logs
           </h1>
-          <p className="text-muted-foreground mt-2">Track all admin actions on the platform</p>
+          <p className="text-muted-foreground mt-2">
+            Track all admin actions · {pagination.total} total entries
+          </p>
         </div>
-        <div className="flex items-center gap-3">
-          <Select value={entity} onValueChange={(v) => { setEntity(v === 'all' ? '' : v); setPage(0); }}>
+        <div className="flex items-center gap-3 flex-wrap">
+          <Select value={entity || 'all'} onValueChange={handleEntityChange}>
             <SelectTrigger className="w-40">
               <SelectValue placeholder="All entities" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All entities</SelectItem>
-              {ENTITY_OPTIONS.filter(Boolean).map((e) => (
+              {ENTITY_OPTIONS.map((e) => (
                 <SelectItem key={e} value={e} className="capitalize">{e}</SelectItem>
               ))}
             </SelectContent>
           </Select>
-          <Button variant="outline" onClick={load}><RefreshCw className="h-4 w-4" /></Button>
+          <div className="relative">
+            <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search action or details..."
+              className="pl-9 pr-8 w-52"
+              value={search}
+              onChange={(e) => handleSearchChange(e.target.value)}
+            />
+            {search && (
+              <button onClick={() => { setSearch(''); setPage(1); load(1, entity, ''); }} className="absolute right-2 top-2.5 text-muted-foreground hover:text-gray-900">
+                <X className="h-4 w-4" />
+              </button>
+            )}
+          </div>
+          <Button variant="outline" onClick={() => load()}><RefreshCw className="h-4 w-4" /></Button>
         </div>
       </div>
 
@@ -110,7 +152,9 @@ export const AuditLogsPage: React.FC = () => {
                 ))}
                 {logs.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center py-12 text-muted-foreground">No audit logs found</TableCell>
+                    <TableCell colSpan={7} className="text-center py-12 text-muted-foreground">
+                      {entity || search ? 'No logs match your filters' : 'No audit logs found'}
+                    </TableCell>
                   </TableRow>
                 )}
               </TableBody>
@@ -119,22 +163,10 @@ export const AuditLogsPage: React.FC = () => {
         </CardContent>
       </Card>
 
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between">
-          <p className="text-sm text-muted-foreground">
-            Showing {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, total)} of {total} entries
-          </p>
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={() => setPage(p => p - 1)} disabled={page === 0}>
-              <ChevronLeft className="h-4 w-4" />
-            </Button>
-            <span className="text-sm">Page {page + 1} of {totalPages}</span>
-            <Button variant="outline" size="sm" onClick={() => setPage(p => p + 1)} disabled={page >= totalPages - 1}>
-              <ChevronRight className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
-      )}
+      <TablePagination
+        pagination={pagination}
+        onPageChange={(p) => { setPage(p); load(p, entity, search); }}
+      />
     </div>
   );
 };

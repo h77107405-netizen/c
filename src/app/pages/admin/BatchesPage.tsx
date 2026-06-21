@@ -36,10 +36,10 @@ export const BatchesPage: React.FC = () => {
   const load = () => {
     setLoading(true);
     Promise.all([
-      api.admin.getBatches(),
-      api.admin.getCourses(),
-      api.admin.getTeachers(),
-      api.admin.getStudents(),
+      api.admin.getBatches({ page: 1, limit: 100 }),
+      api.admin.getCourses({ all: true }),
+      api.admin.getAllTeachers(),
+      api.admin.getAllStudents(),
     ]).then(([b, c, t, s]) => {
       if (b.success) setBatches(b.data);
       if (c.success) setCourses(c.data);

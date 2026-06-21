@@ -1,5 +1,5 @@
 import {
-  pgTable, text, integer, boolean, timestamp, decimal, jsonb, serial, uuid
+  pgTable, text, integer, boolean, timestamp, decimal, jsonb, uuid, index
 } from 'drizzle-orm/pg-core';
 
 // ── Users ──────────────────────────────────────────────────────────────────
@@ -14,7 +14,12 @@ export const users = pgTable('users', {
   status: text('status', { enum: ['active', 'inactive', 'blocked', 'pending'] }).notNull().default('active'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
-});
+}, (t) => ({
+  roleIdx: index('users_role_idx').on(t.role),
+  statusIdx: index('users_status_idx').on(t.status),
+  createdAtIdx: index('users_created_at_idx').on(t.createdAt),
+  nameIdx: index('users_name_idx').on(t.name),
+}));
 
 export const studentProfiles = pgTable('student_profiles', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -25,7 +30,9 @@ export const studentProfiles = pgTable('student_profiles', {
   dateOfBirth: timestamp('date_of_birth'),
   enrollmentDate: timestamp('enrollment_date').defaultNow().notNull(),
   courseId: uuid('course_id'),
-});
+}, (t) => ({
+  userIdIdx: index('student_profiles_user_id_idx').on(t.userId),
+}));
 
 export const teacherProfiles = pgTable('teacher_profiles', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -33,7 +40,9 @@ export const teacherProfiles = pgTable('teacher_profiles', {
   qualification: text('qualification'),
   experience: integer('experience'),
   specialization: text('specialization'),
-});
+}, (t) => ({
+  userIdIdx: index('teacher_profiles_user_id_idx').on(t.userId),
+}));
 
 // ── Academic ───────────────────────────────────────────────────────────────
 export const courses = pgTable('courses', {
@@ -46,7 +55,10 @@ export const courses = pgTable('courses', {
   status: text('status', { enum: ['active', 'inactive', 'archived'] }).notNull().default('active'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
-});
+}, (t) => ({
+  statusIdx: index('courses_status_idx').on(t.status),
+  createdAtIdx: index('courses_created_at_idx').on(t.createdAt),
+}));
 
 export const subjects = pgTable('subjects', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -55,7 +67,22 @@ export const subjects = pgTable('subjects', {
   description: text('description'),
   order: integer('order').notNull().default(0),
   createdAt: timestamp('created_at').defaultNow().notNull(),
-});
+}, (t) => ({
+  courseIdIdx: index('subjects_course_id_idx').on(t.courseId),
+}));
+
+export const chapters = pgTable('chapters', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  subjectId: uuid('subject_id').notNull().references(() => subjects.id, { onDelete: 'cascade' }),
+  title: text('title').notNull(),
+  description: text('description'),
+  videoUrl: text('video_url'),
+  duration: integer('duration'),
+  order: integer('order').notNull().default(0),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (t) => ({
+  subjectIdIdx: index('chapters_subject_id_idx').on(t.subjectId),
+}));
 
 export const batches = pgTable('batches', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -68,21 +95,31 @@ export const batches = pgTable('batches', {
   description: text('description'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
-});
+}, (t) => ({
+  courseIdIdx: index('batches_course_id_idx').on(t.courseId),
+  statusIdx: index('batches_status_idx').on(t.status),
+  createdAtIdx: index('batches_created_at_idx').on(t.createdAt),
+}));
 
 export const batchStudents = pgTable('batch_students', {
   id: uuid('id').primaryKey().defaultRandom(),
   batchId: uuid('batch_id').notNull().references(() => batches.id, { onDelete: 'cascade' }),
   studentId: uuid('student_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
   enrolledAt: timestamp('enrolled_at').defaultNow().notNull(),
-});
+}, (t) => ({
+  batchIdIdx: index('batch_students_batch_id_idx').on(t.batchId),
+  studentIdIdx: index('batch_students_student_id_idx').on(t.studentId),
+}));
 
 export const batchTeachers = pgTable('batch_teachers', {
   id: uuid('id').primaryKey().defaultRandom(),
   batchId: uuid('batch_id').notNull().references(() => batches.id, { onDelete: 'cascade' }),
   teacherId: uuid('teacher_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
   assignedAt: timestamp('assigned_at').defaultNow().notNull(),
-});
+}, (t) => ({
+  batchIdIdx: index('batch_teachers_batch_id_idx').on(t.batchId),
+  teacherIdIdx: index('batch_teachers_teacher_id_idx').on(t.teacherId),
+}));
 
 // ── Materials ──────────────────────────────────────────────────────────────
 export const materials = pgTable('materials', {
@@ -101,7 +138,13 @@ export const materials = pgTable('materials', {
   visibility: boolean('visibility').notNull().default(true),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
-});
+}, (t) => ({
+  uploadedByIdx: index('materials_uploaded_by_idx').on(t.uploadedBy),
+  courseIdIdx: index('materials_course_id_idx').on(t.courseId),
+  fileTypeIdx: index('materials_file_type_idx').on(t.fileType),
+  visibilityIdx: index('materials_visibility_idx').on(t.visibility),
+  createdAtIdx: index('materials_created_at_idx').on(t.createdAt),
+}));
 
 // ── Live Classes ───────────────────────────────────────────────────────────
 export const liveClasses = pgTable('live_classes', {
@@ -120,7 +163,11 @@ export const liveClasses = pgTable('live_classes', {
   notes: text('notes'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
-});
+}, (t) => ({
+  teacherIdIdx: index('live_classes_teacher_id_idx').on(t.teacherId),
+  statusIdx: index('live_classes_status_idx').on(t.status),
+  scheduledDateIdx: index('live_classes_scheduled_date_idx').on(t.scheduledDate),
+}));
 
 // ── Tests ──────────────────────────────────────────────────────────────────
 export const tests = pgTable('tests', {
@@ -139,7 +186,11 @@ export const tests = pgTable('tests', {
   endDate: timestamp('end_date'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
-});
+}, (t) => ({
+  teacherIdIdx: index('tests_teacher_id_idx').on(t.teacherId),
+  statusIdx: index('tests_status_idx').on(t.status),
+  createdAtIdx: index('tests_created_at_idx').on(t.createdAt),
+}));
 
 export const questions = pgTable('questions', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -151,7 +202,9 @@ export const questions = pgTable('questions', {
   correctAnswer: text('correct_answer'),
   order: integer('order').notNull().default(0),
   createdAt: timestamp('created_at').defaultNow().notNull(),
-});
+}, (t) => ({
+  testIdIdx: index('questions_test_id_idx').on(t.testId),
+}));
 
 export const testResults = pgTable('test_results', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -164,7 +217,11 @@ export const testResults = pgTable('test_results', {
   submittedAt: timestamp('submitted_at').defaultNow().notNull(),
   gradedAt: timestamp('graded_at'),
   gradedBy: uuid('graded_by').references(() => users.id),
-});
+}, (t) => ({
+  testIdIdx: index('test_results_test_id_idx').on(t.testId),
+  studentIdIdx: index('test_results_student_id_idx').on(t.studentId),
+  submittedAtIdx: index('test_results_submitted_at_idx').on(t.submittedAt),
+}));
 
 // ── Assignments ────────────────────────────────────────────────────────────
 export const assignments = pgTable('assignments', {
@@ -180,7 +237,10 @@ export const assignments = pgTable('assignments', {
   totalMarks: integer('total_marks'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
-});
+}, (t) => ({
+  teacherIdIdx: index('assignments_teacher_id_idx').on(t.teacherId),
+  dueDateIdx: index('assignments_due_date_idx').on(t.dueDate),
+}));
 
 export const assignmentSubmissions = pgTable('assignment_submissions', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -194,7 +254,10 @@ export const assignmentSubmissions = pgTable('assignment_submissions', {
   feedback: text('feedback'),
   gradedAt: timestamp('graded_at'),
   gradedBy: uuid('graded_by').references(() => users.id),
-});
+}, (t) => ({
+  assignmentIdIdx: index('assignment_submissions_assignment_id_idx').on(t.assignmentId),
+  studentIdIdx: index('assignment_submissions_student_id_idx').on(t.studentId),
+}));
 
 // ── Doubts ─────────────────────────────────────────────────────────────────
 export const doubts = pgTable('doubts', {
@@ -206,7 +269,11 @@ export const doubts = pgTable('doubts', {
   status: text('status', { enum: ['open', 'answered', 'resolved'] }).notNull().default('open'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
-});
+}, (t) => ({
+  studentIdIdx: index('doubts_student_id_idx').on(t.studentId),
+  statusIdx: index('doubts_status_idx').on(t.status),
+  createdAtIdx: index('doubts_created_at_idx').on(t.createdAt),
+}));
 
 export const doubtReplies = pgTable('doubt_replies', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -215,7 +282,9 @@ export const doubtReplies = pgTable('doubt_replies', {
   reply: text('reply').notNull(),
   attachmentUrl: text('attachment_url'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
-});
+}, (t) => ({
+  doubtIdIdx: index('doubt_replies_doubt_id_idx').on(t.doubtId),
+}));
 
 // ── Fees ───────────────────────────────────────────────────────────────────
 export const fees = pgTable('fees', {
@@ -228,7 +297,10 @@ export const fees = pgTable('fees', {
   dueDate: timestamp('due_date'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
-});
+}, (t) => ({
+  studentIdIdx: index('fees_student_id_idx').on(t.studentId),
+  createdAtIdx: index('fees_created_at_idx').on(t.createdAt),
+}));
 
 export const payments = pgTable('payments', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -243,7 +315,11 @@ export const payments = pgTable('payments', {
   paidAt: timestamp('paid_at').defaultNow().notNull(),
   recordedBy: uuid('recorded_by').references(() => users.id),
   notes: text('notes'),
-});
+}, (t) => ({
+  studentIdIdx: index('payments_student_id_idx').on(t.studentId),
+  feeIdIdx: index('payments_fee_id_idx').on(t.feeId),
+  paidAtIdx: index('payments_paid_at_idx').on(t.paidAt),
+}));
 
 // ── Audit Logs ─────────────────────────────────────────────────────────────
 export const auditLogs = pgTable('audit_logs', {
@@ -256,7 +332,11 @@ export const auditLogs = pgTable('audit_logs', {
   details: text('details'),
   ipAddress: text('ip_address'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
-});
+}, (t) => ({
+  createdAtIdx: index('audit_logs_created_at_idx').on(t.createdAt),
+  entityIdx: index('audit_logs_entity_idx').on(t.entity),
+  userIdIdx: index('audit_logs_user_id_idx').on(t.userId),
+}));
 
 // ── Settings ───────────────────────────────────────────────────────────────
 export const settings = pgTable('settings', {
@@ -276,4 +356,8 @@ export const notifications = pgTable('notifications', {
   link: text('link'),
   isRead: boolean('is_read').notNull().default(false),
   createdAt: timestamp('created_at').defaultNow().notNull(),
-});
+}, (t) => ({
+  receiverIdIdx: index('notifications_receiver_id_idx').on(t.receiverId),
+  isReadIdx: index('notifications_is_read_idx').on(t.isRead),
+  createdAtIdx: index('notifications_created_at_idx').on(t.createdAt),
+}));

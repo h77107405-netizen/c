@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { eq, desc, count, sql, and, ne, ilike, or } from 'drizzle-orm';
+import { eq, desc, count, sql, and, ne, ilike, or, asc, inArray } from 'drizzle-orm';
 import { db, schema } from '../db/index.js';
 import { hashPassword } from '../utils/password.js';
 import { authenticate, requireAdmin } from '../middleware/auth.js';
@@ -9,6 +9,21 @@ async function logAudit(userId: string | undefined, userRole: string | undefined
   try {
     await db.insert(schema.auditLogs).values({ userId, userRole, action, entity, entityId, details, ipAddress });
   } catch {} // never block request for logging
+}
+
+function parsePagination(query: any, defaultLimit = 20) {
+  const page = Math.max(1, parseInt(query.page as string || '1'));
+  const limit = Math.min(100, Math.max(1, parseInt(query.limit as string || String(defaultLimit))));
+  const offset = (page - 1) * limit;
+  const search = (query.search as string || '').trim();
+  const status = (query.status as string || '').trim();
+  const sort = (query.sort as string || '').trim();
+  const order = (query.order as string || 'desc').toLowerCase() === 'asc' ? 'asc' : 'desc';
+  return { page, limit, offset, search, status, sort, order };
+}
+
+function paginationMeta(total: number, page: number, limit: number) {
+  return { page, limit, total, totalPages: Math.ceil(total / limit) };
 }
 
 const router = Router();
@@ -24,14 +39,9 @@ router.get('/dashboard', asyncHandler(async (req, res) => {
     db.select({ total: count() }).from(schema.tests),
   ]);
 
-  const pendingFees = await db.select({ total: sql<number>`COALESCE(SUM(${schema.fees.finalAmount}), 0)` })
-    .from(schema.fees);
-  const upcomingClasses = await db.select({ total: count() })
-    .from(schema.liveClasses)
-    .where(eq(schema.liveClasses.status, 'scheduled'));
-  const pendingDoubts = await db.select({ total: count() })
-    .from(schema.doubts)
-    .where(eq(schema.doubts.status, 'open'));
+  const pendingFees = await db.select({ total: sql<number>`COALESCE(SUM(${schema.fees.finalAmount}), 0)` }).from(schema.fees);
+  const upcomingClasses = await db.select({ total: count() }).from(schema.liveClasses).where(eq(schema.liveClasses.status, 'scheduled'));
+  const pendingDoubts = await db.select({ total: count() }).from(schema.doubts).where(eq(schema.doubts.status, 'open'));
 
   res.json({
     success: true,
@@ -46,7 +56,26 @@ router.get('/dashboard', asyncHandler(async (req, res) => {
 
 // ── Students ───────────────────────────────────────────────────────────────
 router.get('/students', asyncHandler(async (req, res) => {
-  const students = await db
+  const { page, limit, offset, search, status, order } = parsePagination(req.query);
+
+  const conditions: any[] = [eq(schema.users.role, 'student')];
+  if (status) conditions.push(eq(schema.users.status, status as any));
+  if (search) {
+    conditions.push(or(
+      ilike(schema.users.name, `%${search}%`),
+      ilike(schema.users.email, `%${search}%`),
+      ilike(schema.users.phone, `%${search}%`),
+    )!);
+  }
+
+  const where = and(...conditions);
+
+  const [{ total }] = await db.select({ total: count() })
+    .from(schema.users)
+    .leftJoin(schema.studentProfiles, eq(schema.users.id, schema.studentProfiles.userId))
+    .where(where);
+
+  const data = await db
     .select({
       id: schema.users.id, name: schema.users.name, email: schema.users.email,
       phone: schema.users.phone, status: schema.users.status, profileImage: schema.users.profileImage,
@@ -58,24 +87,21 @@ router.get('/students', asyncHandler(async (req, res) => {
     })
     .from(schema.users)
     .leftJoin(schema.studentProfiles, eq(schema.users.id, schema.studentProfiles.userId))
-    .where(eq(schema.users.role, 'student'))
-    .orderBy(desc(schema.users.createdAt));
+    .where(where)
+    .orderBy(order === 'asc' ? asc(schema.users.createdAt) : desc(schema.users.createdAt))
+    .limit(limit)
+    .offset(offset);
 
-  res.json({ success: true, data: students });
+  res.json({ success: true, data, pagination: paginationMeta(total, page, limit) });
 }));
 
 router.post('/students', asyncHandler(async (req, res) => {
   const { name, email, phone, password, parentName, parentPhone, address, courseId } = req.body;
-  if (!name || !email || !phone || !password) {
-    throw new ApiError(400, 'name, email, phone, and password are required');
-  }
+  if (!name || !email || !phone || !password) throw new ApiError(400, 'name, email, phone, and password are required');
   const hashed = await hashPassword(password);
-  const [user] = await db.insert(schema.users).values({
-    name, email: email.toLowerCase(), phone, password: hashed, role: 'student',
-  }).returning();
-  await db.insert(schema.studentProfiles).values({
-    userId: user.id, parentName, parentPhone, address, courseId,
-  });
+  const [user] = await db.insert(schema.users).values({ name, email: email.toLowerCase(), phone, password: hashed, role: 'student' }).returning();
+  await db.insert(schema.studentProfiles).values({ userId: user.id, parentName, parentPhone, address, courseId });
+  await logAudit(req.user!.id, req.user!.role, 'CREATE', 'student', user.id, name, req.ip);
   res.status(201).json({ success: true, data: { id: user.id, name: user.name, email: user.email } });
 }));
 
@@ -89,12 +115,42 @@ router.put('/students/:id', asyncHandler(async (req, res) => {
 
 router.delete('/students/:id', asyncHandler(async (req, res) => {
   await db.delete(schema.users).where(and(eq(schema.users.id, req.params.id), eq(schema.users.role, 'student')));
+  await logAudit(req.user!.id, req.user!.role, 'DELETE', 'student', req.params.id, undefined, req.ip);
   res.json({ success: true, message: 'Student deleted' });
+}));
+
+// All students list (no pagination, for dropdowns)
+router.get('/students/all', asyncHandler(async (req, res) => {
+  const data = await db
+    .select({ id: schema.users.id, name: schema.users.name, email: schema.users.email, phone: schema.users.phone })
+    .from(schema.users)
+    .where(eq(schema.users.role, 'student'))
+    .orderBy(asc(schema.users.name));
+  res.json({ success: true, data });
 }));
 
 // ── Teachers ───────────────────────────────────────────────────────────────
 router.get('/teachers', asyncHandler(async (req, res) => {
-  const teachers = await db
+  const { page, limit, offset, search, status, order } = parsePagination(req.query);
+
+  const conditions: any[] = [eq(schema.users.role, 'teacher')];
+  if (status) conditions.push(eq(schema.users.status, status as any));
+  if (search) {
+    conditions.push(or(
+      ilike(schema.users.name, `%${search}%`),
+      ilike(schema.users.email, `%${search}%`),
+      ilike(schema.users.phone, `%${search}%`),
+    )!);
+  }
+
+  const where = and(...conditions);
+
+  const [{ total }] = await db.select({ total: count() })
+    .from(schema.users)
+    .leftJoin(schema.teacherProfiles, eq(schema.users.id, schema.teacherProfiles.userId))
+    .where(where);
+
+  const data = await db
     .select({
       id: schema.users.id, name: schema.users.name, email: schema.users.email,
       phone: schema.users.phone, status: schema.users.status, profileImage: schema.users.profileImage,
@@ -105,24 +161,31 @@ router.get('/teachers', asyncHandler(async (req, res) => {
     })
     .from(schema.users)
     .leftJoin(schema.teacherProfiles, eq(schema.users.id, schema.teacherProfiles.userId))
-    .where(eq(schema.users.role, 'teacher'))
-    .orderBy(desc(schema.users.createdAt));
+    .where(where)
+    .orderBy(order === 'asc' ? asc(schema.users.createdAt) : desc(schema.users.createdAt))
+    .limit(limit)
+    .offset(offset);
 
-  res.json({ success: true, data: teachers });
+  res.json({ success: true, data, pagination: paginationMeta(total, page, limit) });
+}));
+
+// All teachers list (no pagination, for dropdowns)
+router.get('/teachers/all', asyncHandler(async (req, res) => {
+  const data = await db
+    .select({ id: schema.users.id, name: schema.users.name, email: schema.users.email })
+    .from(schema.users)
+    .where(eq(schema.users.role, 'teacher'))
+    .orderBy(asc(schema.users.name));
+  res.json({ success: true, data });
 }));
 
 router.post('/teachers', asyncHandler(async (req, res) => {
   const { name, email, phone, password, qualification, experience, specialization } = req.body;
-  if (!name || !email || !phone || !password) {
-    throw new ApiError(400, 'name, email, phone, and password are required');
-  }
+  if (!name || !email || !phone || !password) throw new ApiError(400, 'name, email, phone, and password are required');
   const hashed = await hashPassword(password);
-  const [user] = await db.insert(schema.users).values({
-    name, email: email.toLowerCase(), phone, password: hashed, role: 'teacher',
-  }).returning();
-  await db.insert(schema.teacherProfiles).values({
-    userId: user.id, qualification, experience: experience ? parseInt(experience) : null, specialization,
-  });
+  const [user] = await db.insert(schema.users).values({ name, email: email.toLowerCase(), phone, password: hashed, role: 'teacher' }).returning();
+  await db.insert(schema.teacherProfiles).values({ userId: user.id, qualification, experience: experience ? parseInt(experience) : null, specialization });
+  await logAudit(req.user!.id, req.user!.role, 'CREATE', 'teacher', user.id, name, req.ip);
   res.status(201).json({ success: true, data: { id: user.id, name: user.name, email: user.email } });
 }));
 
@@ -136,19 +199,41 @@ router.put('/teachers/:id', asyncHandler(async (req, res) => {
 
 router.delete('/teachers/:id', asyncHandler(async (req, res) => {
   await db.delete(schema.users).where(and(eq(schema.users.id, req.params.id), eq(schema.users.role, 'teacher')));
+  await logAudit(req.user!.id, req.user!.role, 'DELETE', 'teacher', req.params.id, undefined, req.ip);
   res.json({ success: true, message: 'Teacher deleted' });
 }));
 
 // ── Courses ────────────────────────────────────────────────────────────────
 router.get('/courses', asyncHandler(async (req, res) => {
-  const data = await db.select().from(schema.courses).orderBy(desc(schema.courses.createdAt));
-  res.json({ success: true, data });
+  const { page, limit, offset, search, status, order } = parsePagination(req.query);
+
+  // If page=0 or all=true, return all for dropdown use
+  if (req.query.all === 'true') {
+    const data = await db.select({ id: schema.courses.id, name: schema.courses.name, status: schema.courses.status })
+      .from(schema.courses).where(eq(schema.courses.status, 'active')).orderBy(asc(schema.courses.name));
+    return res.json({ success: true, data });
+  }
+
+  const conditions: any[] = [];
+  if (status) conditions.push(eq(schema.courses.status, status as any));
+  if (search) conditions.push(ilike(schema.courses.name, `%${search}%`));
+
+  const where = conditions.length ? and(...conditions) : undefined;
+
+  const [{ total }] = await db.select({ total: count() }).from(schema.courses).where(where);
+  const data = await db.select().from(schema.courses)
+    .where(where)
+    .orderBy(order === 'asc' ? asc(schema.courses.createdAt) : desc(schema.courses.createdAt))
+    .limit(limit).offset(offset);
+
+  res.json({ success: true, data, pagination: paginationMeta(total, page, limit) });
 }));
 
 router.post('/courses', asyncHandler(async (req, res) => {
   const { name, description, classLevel, duration, fee } = req.body;
   if (!name || !description) throw new ApiError(400, 'name and description are required');
   const [course] = await db.insert(schema.courses).values({ name, description, classLevel, duration, fee: fee?.toString() || '0' }).returning();
+  await logAudit(req.user!.id, req.user!.role, 'CREATE', 'course', course.id, name, req.ip);
   res.status(201).json({ success: true, data: course });
 }));
 
@@ -160,11 +245,32 @@ router.put('/courses/:id', asyncHandler(async (req, res) => {
 
 router.delete('/courses/:id', asyncHandler(async (req, res) => {
   await db.delete(schema.courses).where(eq(schema.courses.id, req.params.id));
+  await logAudit(req.user!.id, req.user!.role, 'DELETE', 'course', req.params.id, undefined, req.ip);
   res.json({ success: true, message: 'Course deleted' });
 }));
 
 // ── Batches ────────────────────────────────────────────────────────────────
 router.get('/batches', asyncHandler(async (req, res) => {
+  const { page, limit, offset, search, status, order } = parsePagination(req.query);
+
+  // Return all for dropdown
+  if (req.query.all === 'true') {
+    const data = await db
+      .select({ id: schema.batches.id, name: schema.batches.name, courseId: schema.batches.courseId })
+      .from(schema.batches)
+      .where(eq(schema.batches.status, 'active'))
+      .orderBy(asc(schema.batches.name));
+    return res.json({ success: true, data });
+  }
+
+  const conditions: any[] = [];
+  if (status) conditions.push(eq(schema.batches.status, status as any));
+  if (search) conditions.push(ilike(schema.batches.name, `%${search}%`));
+  const where = conditions.length ? and(...conditions) : undefined;
+
+  const [{ total }] = await db.select({ total: count() }).from(schema.batches).where(where);
+
+  // Fix N+1: use subquery for student count
   const batchList = await db
     .select({
       id: schema.batches.id, name: schema.batches.name, timing: schema.batches.timing,
@@ -172,17 +278,16 @@ router.get('/batches', asyncHandler(async (req, res) => {
       status: schema.batches.status, description: schema.batches.description,
       createdAt: schema.batches.createdAt,
       courseId: schema.batches.courseId, courseName: schema.courses.name,
+      studentCount: sql<number>`(SELECT COUNT(*) FROM batch_students WHERE batch_id = ${schema.batches.id})`,
     })
     .from(schema.batches)
     .leftJoin(schema.courses, eq(schema.batches.courseId, schema.courses.id))
-    .orderBy(desc(schema.batches.createdAt));
+    .where(where)
+    .orderBy(order === 'asc' ? asc(schema.batches.createdAt) : desc(schema.batches.createdAt))
+    .limit(limit)
+    .offset(offset);
 
-  const batchesWithCounts = await Promise.all(batchList.map(async (b) => {
-    const [{ total: studentCount }] = await db.select({ total: count() }).from(schema.batchStudents).where(eq(schema.batchStudents.batchId, b.id));
-    return { ...b, studentCount };
-  }));
-
-  res.json({ success: true, data: batchesWithCounts });
+  res.json({ success: true, data: batchList, pagination: paginationMeta(total, page, limit) });
 }));
 
 router.post('/batches', asyncHandler(async (req, res) => {
@@ -195,6 +300,7 @@ router.post('/batches', asyncHandler(async (req, res) => {
   if (studentIds?.length) {
     await db.insert(schema.batchStudents).values(studentIds.map((sid: string) => ({ batchId: batch.id, studentId: sid })));
   }
+  await logAudit(req.user!.id, req.user!.role, 'CREATE', 'batch', batch.id, name, req.ip);
   res.status(201).json({ success: true, data: batch });
 }));
 
@@ -206,6 +312,7 @@ router.put('/batches/:id', asyncHandler(async (req, res) => {
 
 router.delete('/batches/:id', asyncHandler(async (req, res) => {
   await db.delete(schema.batches).where(eq(schema.batches.id, req.params.id));
+  await logAudit(req.user!.id, req.user!.role, 'DELETE', 'batch', req.params.id, undefined, req.ip);
   res.json({ success: true, message: 'Batch deleted' });
 }));
 
@@ -228,8 +335,7 @@ router.post('/batches/:id/teachers', asyncHandler(async (req, res) => {
   const { teacherId } = req.body;
   if (!teacherId) throw new ApiError(400, 'teacherId is required');
   const existing = await db.select().from(schema.batchTeachers)
-    .where(and(eq(schema.batchTeachers.batchId, req.params.id), eq(schema.batchTeachers.teacherId, teacherId)))
-    .limit(1);
+    .where(and(eq(schema.batchTeachers.batchId, req.params.id), eq(schema.batchTeachers.teacherId, teacherId))).limit(1);
   if (existing.length) throw new ApiError(409, 'Teacher already in this batch');
   await db.insert(schema.batchTeachers).values({ batchId: req.params.id, teacherId });
   res.json({ success: true, message: 'Teacher added to batch' });
@@ -245,8 +351,7 @@ router.post('/batches/:id/students', asyncHandler(async (req, res) => {
   const { studentId } = req.body;
   if (!studentId) throw new ApiError(400, 'studentId is required');
   const existing = await db.select().from(schema.batchStudents)
-    .where(and(eq(schema.batchStudents.batchId, req.params.id), eq(schema.batchStudents.studentId, studentId)))
-    .limit(1);
+    .where(and(eq(schema.batchStudents.batchId, req.params.id), eq(schema.batchStudents.studentId, studentId))).limit(1);
   if (existing.length) throw new ApiError(409, 'Student already in this batch');
   await db.insert(schema.batchStudents).values({ batchId: req.params.id, studentId });
   res.json({ success: true, message: 'Student added to batch' });
@@ -260,6 +365,15 @@ router.delete('/batches/:id/students/:studentId', asyncHandler(async (req, res) 
 
 // ── Materials ──────────────────────────────────────────────────────────────
 router.get('/materials', asyncHandler(async (req, res) => {
+  const { page, limit, offset, search, status: fileType, order } = parsePagination(req.query);
+
+  const conditions: any[] = [];
+  if (fileType) conditions.push(eq(schema.materials.fileType, fileType as any));
+  if (search) conditions.push(ilike(schema.materials.title, `%${search}%`));
+  const where = conditions.length ? and(...conditions) : undefined;
+
+  const [{ total }] = await db.select({ total: count() }).from(schema.materials).where(where);
+
   const data = await db
     .select({
       id: schema.materials.id, title: schema.materials.title, description: schema.materials.description,
@@ -271,8 +385,12 @@ router.get('/materials', asyncHandler(async (req, res) => {
     .from(schema.materials)
     .leftJoin(schema.courses, eq(schema.materials.courseId, schema.courses.id))
     .leftJoin(schema.users, eq(schema.materials.uploadedBy, schema.users.id))
-    .orderBy(desc(schema.materials.createdAt));
-  res.json({ success: true, data });
+    .where(where)
+    .orderBy(order === 'asc' ? asc(schema.materials.createdAt) : desc(schema.materials.createdAt))
+    .limit(limit)
+    .offset(offset);
+
+  res.json({ success: true, data, pagination: paginationMeta(total, page, limit) });
 }));
 
 router.post('/materials', asyncHandler(async (req, res) => {
@@ -280,14 +398,15 @@ router.post('/materials', asyncHandler(async (req, res) => {
   if (!title || !fileUrl || !fileName) throw new ApiError(400, 'title, fileUrl, and fileName are required');
   const [mat] = await db.insert(schema.materials).values({
     title, description, fileUrl, fileType: fileType || 'document', fileName,
-    fileSize, courseId, batchId, visibility: visibility !== false,
-    uploadedBy: req.user!.id,
+    fileSize, courseId, batchId, visibility: visibility !== false, uploadedBy: req.user!.id,
   }).returning();
+  await logAudit(req.user!.id, req.user!.role, 'CREATE', 'material', mat.id, title, req.ip);
   res.status(201).json({ success: true, data: mat });
 }));
 
 router.delete('/materials/:id', asyncHandler(async (req, res) => {
   await db.delete(schema.materials).where(eq(schema.materials.id, req.params.id));
+  await logAudit(req.user!.id, req.user!.role, 'DELETE', 'material', req.params.id, undefined, req.ip);
   res.json({ success: true, message: 'Material deleted' });
 }));
 
@@ -301,9 +420,7 @@ router.get('/settings', asyncHandler(async (req, res) => {
 
 router.put('/settings', asyncHandler(async (req, res) => {
   const entries: Array<{ key: string; value: string }> = Object.entries(req.body).map(([key, value]) => ({
-    key,
-    value: String(value),
-    updatedAt: new Date(),
+    key, value: String(value), updatedAt: new Date(),
   }));
   if (!entries.length) throw new ApiError(400, 'No settings to update');
   for (const entry of entries) {
@@ -315,24 +432,45 @@ router.put('/settings', asyncHandler(async (req, res) => {
 
 // ── Live Classes ───────────────────────────────────────────────────────────
 router.get('/live-classes', asyncHandler(async (req, res) => {
+  const { page, limit, offset, search, status, order } = parsePagination(req.query);
+
+  const conditions: any[] = [];
+  if (status) conditions.push(eq(schema.liveClasses.status, status as any));
+  if (search) conditions.push(ilike(schema.liveClasses.title, `%${search}%`));
+  const where = conditions.length ? and(...conditions) : undefined;
+
+  const [{ total }] = await db.select({ total: count() }).from(schema.liveClasses).where(where);
+
   const data = await db
     .select({
       id: schema.liveClasses.id, title: schema.liveClasses.title,
       scheduledDate: schema.liveClasses.scheduledDate, scheduledTime: schema.liveClasses.scheduledTime,
       duration: schema.liveClasses.duration, status: schema.liveClasses.status,
       meetingLink: schema.liveClasses.meetingLink, createdAt: schema.liveClasses.createdAt,
-      teacherName: schema.users.name,
-      batchName: schema.batches.name,
+      teacherName: schema.users.name, batchName: schema.batches.name,
     })
     .from(schema.liveClasses)
     .leftJoin(schema.users, eq(schema.liveClasses.teacherId, schema.users.id))
     .leftJoin(schema.batches, eq(schema.liveClasses.batchId, schema.batches.id))
-    .orderBy(desc(schema.liveClasses.scheduledDate));
-  res.json({ success: true, data });
+    .where(where)
+    .orderBy(order === 'asc' ? asc(schema.liveClasses.scheduledDate) : desc(schema.liveClasses.scheduledDate))
+    .limit(limit)
+    .offset(offset);
+
+  res.json({ success: true, data, pagination: paginationMeta(total, page, limit) });
 }));
 
 // ── Tests ──────────────────────────────────────────────────────────────────
 router.get('/tests', asyncHandler(async (req, res) => {
+  const { page, limit, offset, search, status, order } = parsePagination(req.query);
+
+  const conditions: any[] = [];
+  if (status) conditions.push(eq(schema.tests.status, status as any));
+  if (search) conditions.push(ilike(schema.tests.title, `%${search}%`));
+  const where = conditions.length ? and(...conditions) : undefined;
+
+  const [{ total }] = await db.select({ total: count() }).from(schema.tests).where(where);
+
   const data = await db
     .select({
       id: schema.tests.id, title: schema.tests.title, duration: schema.tests.duration,
@@ -343,12 +481,35 @@ router.get('/tests', asyncHandler(async (req, res) => {
     .from(schema.tests)
     .leftJoin(schema.users, eq(schema.tests.teacherId, schema.users.id))
     .leftJoin(schema.courses, eq(schema.tests.courseId, schema.courses.id))
-    .orderBy(desc(schema.tests.createdAt));
-  res.json({ success: true, data });
+    .where(where)
+    .orderBy(order === 'asc' ? asc(schema.tests.createdAt) : desc(schema.tests.createdAt))
+    .limit(limit)
+    .offset(offset);
+
+  res.json({ success: true, data, pagination: paginationMeta(total, page, limit) });
 }));
 
 // ── Fees ───────────────────────────────────────────────────────────────────
 router.get('/fees', asyncHandler(async (req, res) => {
+  const { page, limit, offset, search, order } = parsePagination(req.query);
+
+  // For fee stats — run once, not per page
+  const [[{ totalAmount }], [{ totalDiscount }]] = await Promise.all([
+    db.select({ totalAmount: sql<number>`COALESCE(SUM(${schema.fees.finalAmount}), 0)` }).from(schema.fees),
+    db.select({ totalDiscount: sql<number>`COALESCE(SUM(${schema.fees.discount}), 0)` }).from(schema.fees),
+  ]);
+
+  const conditions: any[] = [];
+  if (search) {
+    conditions.push(ilike(schema.users.name, `%${search}%`));
+  }
+  const where = conditions.length ? and(...conditions) : undefined;
+
+  const [{ total }] = await db.select({ total: count() })
+    .from(schema.fees)
+    .leftJoin(schema.users, eq(schema.fees.studentId, schema.users.id))
+    .where(where);
+
   const data = await db
     .select({
       id: schema.fees.id, totalAmount: schema.fees.totalAmount, discount: schema.fees.discount,
@@ -359,8 +520,16 @@ router.get('/fees', asyncHandler(async (req, res) => {
     .from(schema.fees)
     .leftJoin(schema.users, eq(schema.fees.studentId, schema.users.id))
     .leftJoin(schema.courses, eq(schema.fees.courseId, schema.courses.id))
-    .orderBy(desc(schema.fees.createdAt));
-  res.json({ success: true, data });
+    .where(where)
+    .orderBy(order === 'asc' ? asc(schema.fees.createdAt) : desc(schema.fees.createdAt))
+    .limit(limit)
+    .offset(offset);
+
+  res.json({
+    success: true, data,
+    pagination: paginationMeta(total, page, limit),
+    stats: { totalAmount, totalDiscount },
+  });
 }));
 
 router.post('/fees', asyncHandler(async (req, res) => {
@@ -372,6 +541,7 @@ router.post('/fees', asyncHandler(async (req, res) => {
   const [fee] = await db.insert(schema.fees).values({
     studentId, courseId, totalAmount: total.toString(), discount: disc.toString(), finalAmount: final.toString(), dueDate,
   }).returning();
+  await logAudit(req.user!.id, req.user!.role, 'CREATE', 'fee', fee.id, `₹${final} for studentId=${studentId}`, req.ip);
   res.status(201).json({ success: true, data: fee });
 }));
 
@@ -387,7 +557,6 @@ router.post('/fees/:feeId/payments', asyncHandler(async (req, res) => {
   res.status(201).json({ success: true, data: payment });
 }));
 
-// ── Fee Receipt ─────────────────────────────────────────────────────────────
 router.get('/fees/:feeId/receipt', asyncHandler(async (req, res) => {
   const [fee] = await db
     .select({
@@ -398,8 +567,7 @@ router.get('/fees/:feeId/receipt', asyncHandler(async (req, res) => {
     .from(schema.fees)
     .leftJoin(schema.courses, eq(schema.fees.courseId, schema.courses.id))
     .leftJoin(schema.users, eq(schema.fees.studentId, schema.users.id))
-    .where(eq(schema.fees.id, req.params.feeId))
-    .limit(1);
+    .where(eq(schema.fees.id, req.params.feeId)).limit(1);
   if (!fee) throw new ApiError(404, 'Fee not found');
   const payments = await db.select().from(schema.payments).where(eq(schema.payments.feeId, req.params.feeId)).orderBy(desc(schema.payments.paidAt));
   res.json({ success: true, data: { fee, payments } });
@@ -486,11 +654,19 @@ router.post('/notifications/broadcast', asyncHandler(async (req, res) => {
 
 // ── Audit Logs ─────────────────────────────────────────────────────────────
 router.get('/audit-logs', asyncHandler(async (req, res) => {
-  const limit = parseInt(req.query.limit as string || '50');
-  const offset = parseInt(req.query.offset as string || '0');
-  const entity = req.query.entity as string;
+  const { page, limit, offset, search, status: entity, order } = parsePagination(req.query, 20);
 
-  const conditions = entity ? [eq(schema.auditLogs.entity, entity)] : [];
+  const conditions: any[] = [];
+  if (entity) conditions.push(eq(schema.auditLogs.entity, entity));
+  if (search) {
+    conditions.push(or(
+      ilike(schema.auditLogs.action, `%${search}%`),
+      ilike(schema.auditLogs.details, `%${search}%`),
+    )!);
+  }
+  const where = conditions.length ? and(...conditions) : undefined;
+
+  const [{ total }] = await db.select({ total: count() }).from(schema.auditLogs).where(where);
 
   const data = await db
     .select({
@@ -501,13 +677,12 @@ router.get('/audit-logs', asyncHandler(async (req, res) => {
     })
     .from(schema.auditLogs)
     .leftJoin(schema.users, eq(schema.auditLogs.userId, schema.users.id))
-    .where(conditions.length ? and(...conditions) : undefined)
-    .orderBy(desc(schema.auditLogs.createdAt))
+    .where(where)
+    .orderBy(order === 'asc' ? asc(schema.auditLogs.createdAt) : desc(schema.auditLogs.createdAt))
     .limit(limit)
     .offset(offset);
 
-  const [{ total }] = await db.select({ total: count() }).from(schema.auditLogs);
-  res.json({ success: true, data, total });
+  res.json({ success: true, data, pagination: paginationMeta(total, page, limit), total });
 }));
 
 export default router;

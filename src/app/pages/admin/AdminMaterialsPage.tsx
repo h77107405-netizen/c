@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Card, CardContent } from '../../components/ui/card';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Badge } from '../../components/ui/badge';
@@ -7,14 +7,19 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Label } from '../../components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs';
-import { Plus, Trash2, Loader2, RefreshCw, FileText, Video, Image, File, Upload, Link, Download, Eye } from 'lucide-react';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../components/ui/table';
+import { Plus, Trash2, Loader2, RefreshCw, FileText, Video, Image, File, Upload, Link, Eye, Search, X } from 'lucide-react';
 import { api } from '../../lib/api';
+import { TablePagination } from '../../components/shared/TablePagination';
 import { toast } from 'sonner';
 
 const typeIcon = (t: string = '') => ({ pdf: FileText, video: Video, image: Image })[t.toLowerCase()] || File;
-const typeBadge = (t: string = '') =>
-  ({ pdf: 'bg-red-100 text-red-700', video: 'bg-blue-100 text-blue-700', image: 'bg-green-100 text-green-700' })[t.toLowerCase()] || 'bg-gray-100 text-gray-700';
-
+const fmt = (bytes: number) => {
+  if (!bytes) return '';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+};
 const guessType = (mime: string) => {
   if (mime.startsWith('image/')) return 'image';
   if (mime.startsWith('video/')) return 'video';
@@ -22,17 +27,17 @@ const guessType = (mime: string) => {
   return 'document';
 };
 
-const fmt = (bytes: number) => {
-  if (!bytes) return '';
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-};
+const DEFAULT_LIMIT = 18;
 
 export const AdminMaterialsPage: React.FC = () => {
   const [materials, setMaterials] = useState<any[]>([]);
+  const [pagination, setPagination] = useState({ page: 1, limit: DEFAULT_LIMIT, total: 0, totalPages: 1 });
   const [batches, setBatches] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
+  const [typeFilter, setTypeFilter] = useState('');
+  const [page, setPage] = useState(1);
+  const [limit] = useState(DEFAULT_LIMIT);
   const [addOpen, setAddOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [uploadMode, setUploadMode] = useState<'file' | 'url'>('file');
@@ -41,18 +46,40 @@ export const AdminMaterialsPage: React.FC = () => {
   const [uploading, setUploading] = useState(false);
   const [uploadedInfo, setUploadedInfo] = useState<{ fileUrl: string; fileName: string; fileSize: number; mimeType: string } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const searchDebounce = useRef<ReturnType<typeof setTimeout>>();
 
-  const load = () => {
+  const loadBatches = () => {
+    api.admin.getBatches({ all: true }).then((r) => { if (r.success) setBatches(r.data); }).catch(console.error);
+  };
+
+  const load = useCallback((p = page, s = search, tf = typeFilter) => {
     setLoading(true);
-    Promise.all([api.admin.getMaterials(), api.admin.getBatches()])
-      .then(([m, b]) => {
-        if (m.success) setMaterials(m.data);
-        if (b.success) setBatches(b.data);
+    api.admin.getMaterials({ page: p, limit, search: s || undefined, status: tf || undefined })
+      .then((r) => {
+        if (r.success) {
+          setMaterials(r.data);
+          setPagination(r.pagination);
+        }
       })
       .catch(console.error)
       .finally(() => setLoading(false));
+  }, [page, limit, search, typeFilter]);
+
+  useEffect(() => { load(); loadBatches(); }, [page, typeFilter]);
+
+  const handleSearchChange = (val: string) => {
+    setSearch(val);
+    clearTimeout(searchDebounce.current);
+    searchDebounce.current = setTimeout(() => {
+      load(1, val, typeFilter);
+      setPage(1);
+    }, 400);
   };
-  useEffect(load, []);
+
+  const handleTypeChange = (val: string) => {
+    setTypeFilter(val === 'all' ? '' : val);
+    setPage(1);
+  };
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -68,9 +95,7 @@ export const AdminMaterialsPage: React.FC = () => {
     } catch (err: any) {
       toast.error(err.message || 'Upload failed');
       setSelectedFile(null);
-    } finally {
-      setUploading(false);
-    }
+    } finally { setUploading(false); }
   };
 
   const handleAdd = async (e: React.FormEvent) => {
@@ -78,7 +103,6 @@ export const AdminMaterialsPage: React.FC = () => {
     if (!form.title) { toast.error('Title is required'); return; }
     if (uploadMode === 'file' && !uploadedInfo) { toast.error('Please select a file to upload'); return; }
     if (uploadMode === 'url' && !form.url) { toast.error('URL is required'); return; }
-
     setSaving(true);
     try {
       const payload = uploadMode === 'file'
@@ -87,11 +111,9 @@ export const AdminMaterialsPage: React.FC = () => {
       await api.admin.createMaterial(payload);
       toast.success('Material added');
       setAddOpen(false);
-      setForm({ title: '', description: '', type: 'pdf', url: '', batchId: '' });
-      setSelectedFile(null);
-      setUploadedInfo(null);
-      setUploadMode('file');
-      load();
+      resetDialog();
+      load(1, search, typeFilter);
+      setPage(1);
     } catch (err: any) { toast.error(err.message); } finally { setSaving(false); }
   };
 
@@ -113,10 +135,10 @@ export const AdminMaterialsPage: React.FC = () => {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Study Materials</h1>
-          <p className="text-muted-foreground mt-2">Manage all study materials</p>
+          <p className="text-muted-foreground mt-2">Manage all study materials ({pagination.total} total)</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={load}><RefreshCw className="h-4 w-4" /></Button>
+          <Button variant="outline" onClick={() => load()}><RefreshCw className="h-4 w-4" /></Button>
           <Dialog open={addOpen} onOpenChange={(v) => { setAddOpen(v); if (!v) resetDialog(); }}>
             <DialogTrigger asChild>
               <Button className="bg-gradient-to-r from-teal-600 to-blue-600"><Plus className="h-4 w-4 mr-2" /> Add Material</Button>
@@ -151,8 +173,6 @@ export const AdminMaterialsPage: React.FC = () => {
                     </Select>
                   </div>
                 </div>
-
-                {/* Upload mode tabs */}
                 <Tabs value={uploadMode} onValueChange={(v) => setUploadMode(v as 'file' | 'url')}>
                   <TabsList className="grid w-full grid-cols-2">
                     <TabsTrigger value="file"><Upload className="h-3.5 w-3.5 mr-1.5" />Upload File</TabsTrigger>
@@ -188,7 +208,6 @@ export const AdminMaterialsPage: React.FC = () => {
                     <Input type="url" value={form.url} onChange={(e) => setForm({ ...form, url: e.target.value })} placeholder="https://..." />
                   </TabsContent>
                 </Tabs>
-
                 <Button type="submit" className="w-full bg-gradient-to-r from-teal-600 to-blue-600" disabled={saving || uploading}>
                   {saving ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Adding...</> : 'Add Material'}
                 </Button>
@@ -198,47 +217,110 @@ export const AdminMaterialsPage: React.FC = () => {
         </div>
       </div>
 
-      {loading ? (
-        <div className="text-center py-12"><Loader2 className="h-8 w-8 animate-spin mx-auto text-blue-600" /></div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {materials.map((m) => {
-            const Icon = typeIcon(m.fileType || m.type);
-            return (
-              <Card key={m.id} className="hover:shadow-md transition-shadow">
-                <CardContent className="p-5">
-                  <div className="flex items-start justify-between mb-3">
-                    <div className={'p-2 rounded-lg ' + typeBadge(m.fileType || m.type)}><Icon className="h-5 w-5" /></div>
-                    <Button variant="ghost" size="icon" className="text-red-600 h-7 w-7" onClick={() => handleDelete(m.id)}>
-                      <Trash2 className="h-3 w-3" />
-                    </Button>
-                  </div>
-                  <h3 className="font-semibold mb-1 line-clamp-1">{m.title}</h3>
-                  {m.description && <p className="text-sm text-muted-foreground mb-2 line-clamp-2">{m.description}</p>}
-                  {m.fileSize > 0 && <p className="text-xs text-muted-foreground mb-2">{fmt(m.fileSize)}</p>}
-                  <div className="flex items-center justify-between">
-                    <Badge variant="outline" className="text-xs">{(m.fileType || m.type || 'file').toUpperCase()}</Badge>
-                    <div className="flex gap-2">
-                      {m.fileUrl && (
-                        <a href={m.fileUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-xs text-blue-600 hover:underline">
-                          <Eye className="h-3 w-3" /> View
-                        </a>
-                      )}
-                    </div>
-                  </div>
-                  {m.uploaderName && <p className="text-xs text-muted-foreground mt-2">By {m.uploaderName}</p>}
-                </CardContent>
-              </Card>
-            );
-          })}
-          {materials.length === 0 && (
-            <div className="col-span-3 text-center py-12 text-muted-foreground">
-              <FileText className="h-12 w-12 mx-auto mb-3 text-gray-300" />
-              No materials yet. Add your first material!
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between flex-wrap gap-3">
+            <CardTitle>All Materials</CardTitle>
+            <div className="flex gap-3 flex-wrap">
+              <Select value={typeFilter || 'all'} onValueChange={handleTypeChange}>
+                <SelectTrigger className="w-36">
+                  <SelectValue placeholder="All types" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Types</SelectItem>
+                  <SelectItem value="pdf">PDF</SelectItem>
+                  <SelectItem value="video">Video</SelectItem>
+                  <SelectItem value="image">Image</SelectItem>
+                  <SelectItem value="document">Document</SelectItem>
+                  <SelectItem value="other">Other</SelectItem>
+                </SelectContent>
+              </Select>
+              <div className="relative">
+                <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search materials..."
+                  className="pl-9 pr-8 w-56"
+                  value={search}
+                  onChange={(e) => handleSearchChange(e.target.value)}
+                />
+                {search && (
+                  <button onClick={() => { setSearch(''); load(1, '', typeFilter); setPage(1); }} className="absolute right-2 top-2.5 text-muted-foreground hover:text-gray-900">
+                    <X className="h-4 w-4" />
+                  </button>
+                )}
+              </div>
             </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {loading ? (
+            <div className="text-center py-12"><Loader2 className="h-8 w-8 animate-spin mx-auto text-blue-600" /></div>
+          ) : (
+            <>
+              <div className="border rounded-lg overflow-hidden">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Title</TableHead>
+                      <TableHead>Type</TableHead>
+                      <TableHead>Course</TableHead>
+                      <TableHead>Size</TableHead>
+                      <TableHead>Uploaded By</TableHead>
+                      <TableHead>Date</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {materials.map((m) => {
+                      const Icon = typeIcon(m.fileType);
+                      return (
+                        <TableRow key={m.id}>
+                          <TableCell>
+                            <div className="flex items-center gap-2">
+                              <Icon className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                              <span className="font-medium truncate max-w-[180px]">{m.title}</span>
+                            </div>
+                            {m.description && <p className="text-xs text-muted-foreground mt-0.5 truncate max-w-[180px]">{m.description}</p>}
+                          </TableCell>
+                          <TableCell><Badge variant="outline" className="text-xs">{(m.fileType || 'file').toUpperCase()}</Badge></TableCell>
+                          <TableCell className="text-sm text-muted-foreground">{m.courseName || '—'}</TableCell>
+                          <TableCell className="text-sm text-muted-foreground">{m.fileSize ? fmt(m.fileSize) : '—'}</TableCell>
+                          <TableCell className="text-sm">{m.uploaderName || '—'}</TableCell>
+                          <TableCell className="text-xs text-muted-foreground">{new Date(m.createdAt).toLocaleDateString()}</TableCell>
+                          <TableCell className="text-right">
+                            <div className="flex items-center justify-end gap-1">
+                              {m.fileUrl && (
+                                <a href={m.fileUrl} target="_blank" rel="noopener noreferrer" className="p-1.5 rounded hover:bg-gray-100 text-blue-600">
+                                  <Eye className="h-3.5 w-3.5" />
+                                </a>
+                              )}
+                              <Button variant="ghost" size="icon" className="text-red-600 h-7 w-7" onClick={() => handleDelete(m.id)}>
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                    {materials.length === 0 && (
+                      <TableRow>
+                        <TableCell colSpan={7} className="text-center py-10 text-muted-foreground">
+                          <FileText className="h-10 w-10 mx-auto mb-2 text-gray-300" />
+                          {search || typeFilter ? 'No materials match your filters' : 'No materials yet'}
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+              <TablePagination
+                pagination={pagination}
+                onPageChange={(p) => { setPage(p); load(p, search, typeFilter); }}
+              />
+            </>
           )}
-        </div>
-      )}
+        </CardContent>
+      </Card>
     </div>
   );
 };

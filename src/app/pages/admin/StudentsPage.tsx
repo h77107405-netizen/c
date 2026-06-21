@@ -1,28 +1,60 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Badge } from '../../components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../components/ui/table';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '../../components/ui/dialog';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { Label } from '../../components/ui/label';
-import { Plus, Search, Trash2, Loader2, RefreshCw } from 'lucide-react';
+import { Plus, Search, Trash2, Loader2, RefreshCw, X } from 'lucide-react';
 import { api } from '../../lib/api';
+import { TablePagination } from '../../components/shared/TablePagination';
 import { toast } from 'sonner';
+
+const DEFAULT_LIMIT = 20;
 
 export const StudentsPage: React.FC = () => {
   const [students, setStudents] = useState<any[]>([]);
+  const [pagination, setPagination] = useState({ page: 1, limit: DEFAULT_LIMIT, total: 0, totalPages: 1 });
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(DEFAULT_LIMIT);
   const [addOpen, setAddOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({ name: '', email: '', phone: '', password: 'Student@123', parentName: '', parentPhone: '' });
+  const searchDebounce = useRef<ReturnType<typeof setTimeout>>();
 
-  const load = () => {
+  const load = useCallback((p = page, l = limit, s = search, st = statusFilter) => {
     setLoading(true);
-    api.admin.getStudents().then((r) => { if (r.success) setStudents(r.data); }).catch(console.error).finally(() => setLoading(false));
+    api.admin.getStudents({ page: p, limit: l, search: s || undefined, status: st || undefined })
+      .then((r) => {
+        if (r.success) {
+          setStudents(r.data);
+          setPagination(r.pagination);
+        }
+      })
+      .catch(console.error)
+      .finally(() => setLoading(false));
+  }, [page, limit, search, statusFilter]);
+
+  useEffect(() => { load(); }, [page, limit, statusFilter]);
+
+  const handleSearchChange = (val: string) => {
+    setSearch(val);
+    clearTimeout(searchDebounce.current);
+    searchDebounce.current = setTimeout(() => {
+      setPage(1);
+      load(1, limit, val, statusFilter);
+    }, 400);
   };
-  useEffect(load, []);
+
+  const handleStatusChange = (val: string) => {
+    setStatusFilter(val === 'all' ? '' : val);
+    setPage(1);
+  };
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -32,7 +64,8 @@ export const StudentsPage: React.FC = () => {
       toast.success('Student added successfully');
       setAddOpen(false);
       setForm({ name: '', email: '', phone: '', password: 'Student@123', parentName: '', parentPhone: '' });
-      load();
+      load(1, limit, search, statusFilter);
+      setPage(1);
     } catch (err: any) {
       toast.error(err.message);
     } finally { setSaving(false); }
@@ -56,11 +89,11 @@ export const StudentsPage: React.FC = () => {
     } catch (err: any) { toast.error(err.message); }
   };
 
-  const filtered = students.filter((s) =>
-    s.name?.toLowerCase().includes(search.toLowerCase()) ||
-    s.email?.toLowerCase().includes(search.toLowerCase()) ||
-    s.phone?.includes(search)
-  );
+  const clearSearch = () => {
+    setSearch('');
+    setPage(1);
+    load(1, limit, '', statusFilter);
+  };
 
   return (
     <div className="space-y-6">
@@ -70,7 +103,7 @@ export const StudentsPage: React.FC = () => {
           <p className="text-muted-foreground mt-2">Manage all students</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={load}><RefreshCw className="h-4 w-4" /></Button>
+          <Button variant="outline" onClick={() => load()}><RefreshCw className="h-4 w-4" /></Button>
           <Dialog open={addOpen} onOpenChange={setAddOpen}>
             <DialogTrigger asChild>
               <Button className="bg-gradient-to-r from-blue-600 to-purple-600">
@@ -97,59 +130,114 @@ export const StudentsPage: React.FC = () => {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <Card><CardContent className="p-6"><p className="text-sm text-muted-foreground">Total Students</p><h3 className="text-3xl font-bold mt-2">{students.length}</h3></CardContent></Card>
-        <Card><CardContent className="p-6"><p className="text-sm text-muted-foreground">Active</p><h3 className="text-3xl font-bold mt-2 text-green-600">{students.filter(s => s.status === 'active').length}</h3></CardContent></Card>
-        <Card><CardContent className="p-6"><p className="text-sm text-muted-foreground">Inactive</p><h3 className="text-3xl font-bold mt-2 text-gray-500">{students.filter(s => s.status !== 'active').length}</h3></CardContent></Card>
-        <Card><CardContent className="p-6"><p className="text-sm text-muted-foreground">New This Month</p><h3 className="text-3xl font-bold mt-2 text-blue-600">{students.filter(s => new Date(s.createdAt).getMonth() === new Date().getMonth()).length}</h3></CardContent></Card>
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+        <Card><CardContent className="p-6"><p className="text-sm text-muted-foreground">Total Students</p><h3 className="text-3xl font-bold mt-2">{pagination.total}</h3></CardContent></Card>
+        <Card><CardContent className="p-6"><p className="text-sm text-muted-foreground">This Page</p><h3 className="text-3xl font-bold mt-2 text-blue-600">{students.length}</h3></CardContent></Card>
+        <Card><CardContent className="p-6"><p className="text-sm text-muted-foreground">Pages</p><h3 className="text-3xl font-bold mt-2 text-purple-600">{pagination.totalPages}</h3></CardContent></Card>
       </div>
 
       <Card>
-        <CardHeader><CardTitle>All Students</CardTitle></CardHeader>
-        <CardContent>
-          <div className="flex gap-4 mb-6">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-              <Input placeholder="Search by name, email, phone..." className="pl-10" value={search} onChange={(e) => setSearch(e.target.value)} />
+        <CardHeader>
+          <div className="flex items-center justify-between flex-wrap gap-3">
+            <CardTitle>All Students</CardTitle>
+            <div className="flex gap-3 flex-wrap">
+              <Select value={statusFilter || 'all'} onValueChange={handleStatusChange}>
+                <SelectTrigger className="w-36">
+                  <SelectValue placeholder="All status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Status</SelectItem>
+                  <SelectItem value="active">Active</SelectItem>
+                  <SelectItem value="inactive">Inactive</SelectItem>
+                  <SelectItem value="blocked">Blocked</SelectItem>
+                </SelectContent>
+              </Select>
+              <div className="relative">
+                <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search name, email, phone..."
+                  className="pl-9 pr-8 w-64"
+                  value={search}
+                  onChange={(e) => handleSearchChange(e.target.value)}
+                />
+                {search && (
+                  <button onClick={clearSearch} className="absolute right-2 top-2.5 text-muted-foreground hover:text-gray-900">
+                    <X className="h-4 w-4" />
+                  </button>
+                )}
+              </div>
             </div>
           </div>
+        </CardHeader>
+        <CardContent>
           {loading ? (
             <div className="text-center py-12"><Loader2 className="h-8 w-8 animate-spin mx-auto text-blue-600" /></div>
           ) : (
-            <div className="border rounded-lg overflow-hidden">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Name</TableHead><TableHead>Contact</TableHead>
-                    <TableHead>Parent</TableHead><TableHead>Status</TableHead>
-                    <TableHead>Enrolled</TableHead><TableHead className="text-right">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filtered.map((s) => (
-                    <TableRow key={s.id}>
-                      <TableCell className="font-medium">{s.name}</TableCell>
-                      <TableCell><div className="text-sm"><div>{s.email}</div><div className="text-muted-foreground">{s.phone}</div></div></TableCell>
-                      <TableCell><div className="text-sm"><div>{s.parentName || '—'}</div><div className="text-muted-foreground">{s.parentPhone || ''}</div></div></TableCell>
-                      <TableCell>
-                        <Badge variant={s.status === 'active' ? 'default' : 'secondary'} className="cursor-pointer" onClick={() => handleStatusToggle(s.id, s.status)}>
-                          {s.status}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-sm text-muted-foreground">{s.enrollmentDate ? new Date(s.enrollmentDate).toLocaleDateString() : '—'}</TableCell>
-                      <TableCell className="text-right">
-                        <Button variant="ghost" size="icon" className="text-red-600 hover:text-red-700" onClick={() => handleDelete(s.id, s.name)}>
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </TableCell>
+            <>
+              <div className="border rounded-lg overflow-hidden">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Name</TableHead>
+                      <TableHead>Contact</TableHead>
+                      <TableHead>Parent</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Enrolled</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
-                  ))}
-                  {filtered.length === 0 && (
-                    <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">No students found</TableCell></TableRow>
-                  )}
-                </TableBody>
-              </Table>
-            </div>
+                  </TableHeader>
+                  <TableBody>
+                    {students.map((s) => (
+                      <TableRow key={s.id}>
+                        <TableCell className="font-medium">{s.name}</TableCell>
+                        <TableCell>
+                          <div className="text-sm">
+                            <div>{s.email}</div>
+                            <div className="text-muted-foreground">{s.phone}</div>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="text-sm">
+                            <div>{s.parentName || '—'}</div>
+                            <div className="text-muted-foreground">{s.parentPhone || ''}</div>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <Badge
+                            variant={s.status === 'active' ? 'default' : 'secondary'}
+                            className="cursor-pointer"
+                            onClick={() => handleStatusToggle(s.id, s.status)}
+                          >
+                            {s.status}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          {s.enrollmentDate ? new Date(s.enrollmentDate).toLocaleDateString() : '—'}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Button variant="ghost" size="icon" className="text-red-600 hover:text-red-700" onClick={() => handleDelete(s.id, s.name)}>
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                    {students.length === 0 && (
+                      <TableRow>
+                        <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                          {search || statusFilter ? 'No students match your filters' : 'No students found'}
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+
+              <TablePagination
+                pagination={pagination}
+                onPageChange={(p) => { setPage(p); load(p, limit, search, statusFilter); }}
+                onLimitChange={(l) => { setLimit(l); setPage(1); load(1, l, search, statusFilter); }}
+              />
+            </>
           )}
         </CardContent>
       </Card>

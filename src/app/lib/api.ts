@@ -35,6 +35,25 @@ async function uploadFile(file: File): Promise<{ fileUrl: string; fileName: stri
   return data.data;
 }
 
+export interface PaginationParams {
+  page?: number;
+  limit?: number;
+  search?: string;
+  status?: string;
+  sort?: string;
+  order?: 'asc' | 'desc';
+}
+
+function buildQuery(params?: PaginationParams & Record<string, any>): string {
+  if (!params) return '';
+  const q = new URLSearchParams();
+  Object.entries(params).forEach(([k, v]) => {
+    if (v !== undefined && v !== null && v !== '') q.set(k, String(v));
+  });
+  const str = q.toString();
+  return str ? `?${str}` : '';
+}
+
 export const api = {
   // File Upload
   uploadFile,
@@ -61,33 +80,41 @@ export const api = {
   // Admin
   admin: {
     dashboard: () => request<any>('/admin/dashboard'),
-    // Students
-    getStudents: () => request<any>('/admin/students'),
+
+    // Students (server-side paginated)
+    getStudents: (params?: PaginationParams) => request<any>(`/admin/students${buildQuery(params)}`),
+    getAllStudents: () => request<any>('/admin/students/all'),
     createStudent: (data: any) => request<any>('/admin/students', { method: 'POST', body: JSON.stringify(data) }),
     updateStudent: (id: string, data: any) => request<any>(`/admin/students/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     deleteStudent: (id: string) => request<any>(`/admin/students/${id}`, { method: 'DELETE' }),
-    // Teachers
-    getTeachers: () => request<any>('/admin/teachers'),
+
+    // Teachers (server-side paginated)
+    getTeachers: (params?: PaginationParams) => request<any>(`/admin/teachers${buildQuery(params)}`),
+    getAllTeachers: () => request<any>('/admin/teachers/all'),
     createTeacher: (data: any) => request<any>('/admin/teachers', { method: 'POST', body: JSON.stringify(data) }),
     updateTeacher: (id: string, data: any) => request<any>(`/admin/teachers/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     deleteTeacher: (id: string) => request<any>(`/admin/teachers/${id}`, { method: 'DELETE' }),
-    // Courses
-    getCourses: () => request<any>('/admin/courses'),
+
+    // Courses (server-side paginated)
+    getCourses: (params?: PaginationParams & { all?: boolean }) => request<any>(`/admin/courses${buildQuery(params)}`),
     createCourse: (data: any) => request<any>('/admin/courses', { method: 'POST', body: JSON.stringify(data) }),
     updateCourse: (id: string, data: any) => request<any>(`/admin/courses/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     deleteCourse: (id: string) => request<any>(`/admin/courses/${id}`, { method: 'DELETE' }),
+
     // Subjects
     getSubjects: (courseId: string) => request<any>(`/admin/courses/${courseId}/subjects`),
     createSubject: (courseId: string, data: any) => request<any>(`/admin/courses/${courseId}/subjects`, { method: 'POST', body: JSON.stringify(data) }),
     updateSubject: (courseId: string, subId: string, data: any) => request<any>(`/admin/courses/${courseId}/subjects/${subId}`, { method: 'PUT', body: JSON.stringify(data) }),
     deleteSubject: (courseId: string, subId: string) => request<any>(`/admin/courses/${courseId}/subjects/${subId}`, { method: 'DELETE' }),
+
     // Chapters
     getChapters: (subjectId: string) => request<any>(`/admin/subjects/${subjectId}/chapters`),
     createChapter: (subjectId: string, data: any) => request<any>(`/admin/subjects/${subjectId}/chapters`, { method: 'POST', body: JSON.stringify(data) }),
     updateChapter: (subjectId: string, chapterId: string, data: any) => request<any>(`/admin/subjects/${subjectId}/chapters/${chapterId}`, { method: 'PUT', body: JSON.stringify(data) }),
     deleteChapter: (subjectId: string, chapterId: string) => request<any>(`/admin/subjects/${subjectId}/chapters/${chapterId}`, { method: 'DELETE' }),
-    // Batches
-    getBatches: () => request<any>('/admin/batches'),
+
+    // Batches (server-side paginated)
+    getBatches: (params?: PaginationParams & { all?: boolean }) => request<any>(`/admin/batches${buildQuery(params)}`),
     createBatch: (data: any) => request<any>('/admin/batches', { method: 'POST', body: JSON.stringify(data) }),
     updateBatch: (id: string, data: any) => request<any>(`/admin/batches/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     deleteBatch: (id: string) => request<any>(`/admin/batches/${id}`, { method: 'DELETE' }),
@@ -96,32 +123,33 @@ export const api = {
     removeBatchTeacher: (id: string, teacherId: string) => request<any>(`/admin/batches/${id}/teachers/${teacherId}`, { method: 'DELETE' }),
     addBatchStudent: (id: string, studentId: string) => request<any>(`/admin/batches/${id}/students`, { method: 'POST', body: JSON.stringify({ studentId }) }),
     removeBatchStudent: (id: string, studentId: string) => request<any>(`/admin/batches/${id}/students/${studentId}`, { method: 'DELETE' }),
-    // Materials
-    getMaterials: () => request<any>('/admin/materials'),
+
+    // Materials (server-side paginated)
+    getMaterials: (params?: PaginationParams) => request<any>(`/admin/materials${buildQuery(params)}`),
     createMaterial: (data: any) => request<any>('/admin/materials', { method: 'POST', body: JSON.stringify(data) }),
     deleteMaterial: (id: string) => request<any>(`/admin/materials/${id}`, { method: 'DELETE' }),
-    // Live Classes
-    getLiveClasses: () => request<any>('/admin/live-classes'),
-    // Tests
-    getTests: () => request<any>('/admin/tests'),
-    // Fees
-    getFees: () => request<any>('/admin/fees'),
+
+    // Live Classes (server-side paginated)
+    getLiveClasses: (params?: PaginationParams) => request<any>(`/admin/live-classes${buildQuery(params)}`),
+
+    // Tests (server-side paginated)
+    getTests: (params?: PaginationParams) => request<any>(`/admin/tests${buildQuery(params)}`),
+
+    // Fees (server-side paginated)
+    getFees: (params?: PaginationParams) => request<any>(`/admin/fees${buildQuery(params)}`),
     createFee: (data: any) => request<any>('/admin/fees', { method: 'POST', body: JSON.stringify(data) }),
     recordPayment: (feeId: string, data: any) => request<any>(`/admin/fees/${feeId}/payments`, { method: 'POST', body: JSON.stringify(data) }),
     getFeeReceipt: (feeId: string) => request<any>(`/admin/fees/${feeId}/receipt`),
+
     // Settings
     getSettings: () => request<any>('/admin/settings'),
     saveSettings: (data: Record<string, string>) => request<any>('/admin/settings', { method: 'PUT', body: JSON.stringify(data) }),
+
     // Notifications broadcast
     broadcastNotification: (data: any) => request<any>('/admin/notifications/broadcast', { method: 'POST', body: JSON.stringify(data) }),
-    // Audit Logs
-    getAuditLogs: (params?: { limit?: number; offset?: number; entity?: string }) => {
-      const q = new URLSearchParams();
-      if (params?.limit) q.set('limit', String(params.limit));
-      if (params?.offset) q.set('offset', String(params.offset));
-      if (params?.entity) q.set('entity', params.entity);
-      return request<any>(`/admin/audit-logs?${q}`);
-    },
+
+    // Audit Logs (server-side paginated)
+    getAuditLogs: (params?: PaginationParams & { entity?: string }) => request<any>(`/admin/audit-logs${buildQuery(params)}`),
   },
 
   // Teacher
