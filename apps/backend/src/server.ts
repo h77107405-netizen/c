@@ -1,3 +1,4 @@
+import http from 'http';
 import express from 'express';
 import cors from 'cors';
 import path from 'path';
@@ -7,6 +8,7 @@ import { config, validateEnv } from './config/env.js';
 import { connectDatabase } from './config/database.js';
 import routes from './routes/index.js';
 import { errorHandler, notFoundHandler } from './middleware/error.js';
+import { createWsServer } from './ws/wsManager.js';
 
 validateEnv();
 
@@ -18,7 +20,7 @@ app.set('trust proxy', 1);
 // Security headers
 app.use(helmet({
   crossOriginResourcePolicy: { policy: 'cross-origin' },
-  contentSecurityPolicy: false, // managed separately in prod
+  contentSecurityPolicy: false,
 }));
 
 app.use(cors({ origin: '*', credentials: true }));
@@ -53,7 +55,12 @@ app.use(errorHandler);
 async function startServer() {
   try {
     await connectDatabase();
-    app.listen(config.port, () => {
+
+    // Create HTTP server and attach WebSocket server to it
+    const server = http.createServer(app);
+    createWsServer(server);
+
+    server.listen(config.port, () => {
       console.log(`🚀 API Server running on port ${config.port}`);
     });
   } catch (error) {

@@ -1,7 +1,9 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Bell, Check, CheckCheck, Loader2, Info, AlertCircle, BookOpen, DollarSign, GraduationCap } from 'lucide-react';
 import { Button } from '../ui/button';
 import { api } from '../../lib/api';
+import { useRealtimeNotifications, RealtimeNotificationEvent } from '../../hooks/useRealtimeNotifications';
+import { toast } from 'sonner';
 
 const typeIcon = (type: string) => {
   if (type === 'fee') return DollarSign;
@@ -11,12 +13,22 @@ const typeIcon = (type: string) => {
   return Info;
 };
 
+const typeColor = (type: string) => {
+  if (type === 'fee') return 'text-green-600';
+  if (type === 'test') return 'text-purple-600';
+  if (type === 'class') return 'text-blue-600';
+  if (type === 'doubt') return 'text-orange-600';
+  return 'text-blue-600';
+};
+
 export const NotificationBell: React.FC = () => {
   const [open, setOpen] = useState(false);
   const [unread, setUnread] = useState(0);
   const [notifications, setNotifications] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const openRef = useRef(open);
+  openRef.current = open;
 
   const fetchCount = async () => {
     try {
@@ -35,9 +47,28 @@ export const NotificationBell: React.FC = () => {
 
   useEffect(() => {
     fetchCount();
-    const interval = setInterval(fetchCount, 30000);
+    const interval = setInterval(fetchCount, 60000);
     return () => clearInterval(interval);
   }, []);
+
+  // Real-time notification handler
+  const handleRealtime = useCallback((n: RealtimeNotificationEvent) => {
+    // Prepend to list if panel is open
+    if (openRef.current) {
+      setNotifications(prev => [n, ...prev]);
+    }
+    // Increment unread badge
+    setUnread(prev => prev + 1);
+    // Show toast
+    const Icon = typeIcon(n.type);
+    toast(n.title, {
+      description: n.message,
+      icon: React.createElement(Icon, { className: `h-4 w-4 ${typeColor(n.type)}` }),
+      duration: 5000,
+    });
+  }, []);
+
+  useRealtimeNotifications({ onNotification: handleRealtime });
 
   const handleOpen = () => {
     setOpen(v => !v);
@@ -80,7 +111,7 @@ export const NotificationBell: React.FC = () => {
       <Button variant="ghost" size="icon" className="relative" onClick={handleOpen}>
         <Bell className="h-5 w-5" />
         {unread > 0 && (
-          <span className="absolute top-1 right-1 min-w-[18px] h-[18px] bg-red-500 rounded-full flex items-center justify-center text-[10px] font-bold text-white leading-none px-0.5">
+          <span className="absolute top-1 right-1 min-w-[18px] h-[18px] bg-red-500 rounded-full flex items-center justify-center text-[10px] font-bold text-white leading-none px-0.5 animate-pulse">
             {unread > 99 ? '99+' : unread}
           </span>
         )}
@@ -90,7 +121,12 @@ export const NotificationBell: React.FC = () => {
         <div className="absolute right-0 top-12 w-80 bg-white border rounded-xl shadow-xl z-50 overflow-hidden">
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-3 border-b bg-gray-50">
-            <span className="font-semibold text-sm">Notifications {unread > 0 && <span className="ml-1 text-xs bg-red-100 text-red-600 rounded-full px-2 py-0.5">{unread} new</span>}</span>
+            <span className="font-semibold text-sm">
+              Notifications
+              {unread > 0 && (
+                <span className="ml-1 text-xs bg-red-100 text-red-600 rounded-full px-2 py-0.5">{unread} new</span>
+              )}
+            </span>
             {unread > 0 && (
               <button onClick={markAll} className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 font-medium">
                 <CheckCheck className="h-3.5 w-3.5" /> Mark all read

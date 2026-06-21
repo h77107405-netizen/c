@@ -3,6 +3,7 @@ import { eq, desc, and, count } from 'drizzle-orm';
 import { db, schema } from '../db/index.js';
 import { authenticate } from '../middleware/auth.js';
 import { asyncHandler, ApiError } from '../middleware/error.js';
+import { emitToUsers } from '../ws/wsManager.js';
 
 const router = Router();
 router.use(authenticate);
@@ -58,11 +59,17 @@ router.post('/send', asyncHandler(async (req, res) => {
   if (!receiverIds?.length || !title || !message) {
     throw new ApiError(400, 'receiverIds, title, message required');
   }
-  await db.insert(schema.notifications).values(
+
+  const inserted = await db.insert(schema.notifications).values(
     receiverIds.map((rid: string) => ({
       receiverId: rid, senderId: req.user!.id, type, title, message, link,
     }))
-  );
+  ).returning();
+
+  // Push real-time notification to all recipients via WebSocket
+  const wsEvent = { id: inserted[0]?.id, title, message, type, link, createdAt: new Date().toISOString(), isRead: false };
+  emitToUsers(receiverIds, wsEvent);
+
   res.status(201).json({ success: true, message: 'Notifications sent' });
 }));
 
