@@ -4,6 +4,8 @@ import adminRoutes from './admin.js';
 import teacherRoutes from './teacher.js';
 import studentRoutes from './student.js';
 import seedRoutes from './seed.js';
+import uploadRoutes from './upload.js';
+import notificationRoutes from './notifications.js';
 
 const router = Router();
 
@@ -16,5 +18,7 @@ router.use('/admin', adminRoutes);
 router.use('/teacher', teacherRoutes);
 router.use('/student', studentRoutes);
 router.use('/seed', seedRoutes);
+router.use('/upload', uploadRoutes);
+router.use('/notifications', notificationRoutes);
 
 export default router;

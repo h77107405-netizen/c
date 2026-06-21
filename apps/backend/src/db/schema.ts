@@ -245,6 +245,13 @@ export const payments = pgTable('payments', {
   notes: text('notes'),
 });
 
+// ── Settings ───────────────────────────────────────────────────────────────
+export const settings = pgTable('settings', {
+  key: text('key').primaryKey(),
+  value: text('value').notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
 // ── Notifications ──────────────────────────────────────────────────────────
 export const notifications = pgTable('notifications', {
   id: uuid('id').primaryKey().defaultRandom(),

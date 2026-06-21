@@ -285,6 +285,28 @@ router.delete('/materials/:id', asyncHandler(async (req, res) => {
   res.json({ success: true, message: 'Material deleted' });
 }));
 
+// ── Settings ───────────────────────────────────────────────────────────────
+router.get('/settings', asyncHandler(async (req, res) => {
+  const rows = await db.select().from(schema.settings);
+  const data: Record<string, string> = {};
+  rows.forEach(r => { data[r.key] = r.value; });
+  res.json({ success: true, data });
+}));
+
+router.put('/settings', asyncHandler(async (req, res) => {
+  const entries: Array<{ key: string; value: string }> = Object.entries(req.body).map(([key, value]) => ({
+    key,
+    value: String(value),
+    updatedAt: new Date(),
+  }));
+  if (!entries.length) throw new ApiError(400, 'No settings to update');
+  for (const entry of entries) {
+    await db.insert(schema.settings).values({ key: entry.key, value: entry.value, updatedAt: new Date() })
+      .onConflictDoUpdate({ target: schema.settings.key, set: { value: entry.value, updatedAt: new Date() } });
+  }
+  res.json({ success: true, message: 'Settings saved' });
+}));
+
 // ── Live Classes ───────────────────────────────────────────────────────────
 router.get('/live-classes', asyncHandler(async (req, res) => {
   const data = await db

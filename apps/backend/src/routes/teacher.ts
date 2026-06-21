@@ -244,6 +244,63 @@ router.post('/tests/:id/questions', asyncHandler(async (req, res) => {
   res.json({ success: true, data: inserted });
 }));
 
+// ── Analytics ──────────────────────────────────────────────────────────────
+router.get('/analytics', asyncHandler(async (req, res) => {
+  const teacherId = req.user!.id;
+
+  const [batchRows, materialCount, testRows, doubtRows, liveClassCount] = await Promise.all([
+    db.select({
+      id: schema.batches.id, name: schema.batches.name,
+    })
+      .from(schema.batchTeachers)
+      .innerJoin(schema.batches, eq(schema.batchTeachers.batchId, schema.batches.id))
+      .where(eq(schema.batchTeachers.teacherId, teacherId)),
+    db.select({ total: count() }).from(schema.materials).where(eq(schema.materials.uploadedBy, teacherId)),
+    db.select({ id: schema.tests.id, title: schema.tests.title, totalMarks: schema.tests.totalMarks, status: schema.tests.status, createdAt: schema.tests.createdAt })
+      .from(schema.tests).where(eq(schema.tests.teacherId, teacherId)).orderBy(desc(schema.tests.createdAt)),
+    db.select({ total: count() }).from(schema.doubts),
+    db.select({ total: count() }).from(schema.liveClasses).where(eq(schema.liveClasses.teacherId, teacherId)),
+  ]);
+
+  // Students per batch
+  const batchesWithStudents = await Promise.all(
+    batchRows.map(async (b) => {
+      const [{ total }] = await db.select({ total: count() }).from(schema.batchStudents).where(eq(schema.batchStudents.batchId, b.id));
+      return { ...b, studentCount: total };
+    })
+  );
+  const totalStudents = batchesWithStudents.reduce((s, b) => s + b.studentCount, 0);
+
+  // Test results summary per test
+  const testResultSummary = await Promise.all(
+    testRows.slice(0, 6).map(async (t) => {
+      const results = await db.select({ marksObtained: schema.testResults.marksObtained, percentage: schema.testResults.percentage })
+        .from(schema.testResults).where(eq(schema.testResults.testId, t.id));
+      const avg = results.length ? results.reduce((s, r) => s + Number(r.percentage), 0) / results.length : 0;
+      return { testTitle: t.title, attempts: results.length, avgScore: Math.round(avg) };
+    })
+  );
+
+  const [pendingDoubts] = await db.select({ total: count() }).from(schema.doubts).where(eq(schema.doubts.status, 'open'));
+  const resolvedDoubts = doubtRows[0].total - pendingDoubts.total;
+
+  res.json({
+    success: true,
+    data: {
+      totalStudents,
+      totalBatches: batchRows.length,
+      totalTests: testRows.length,
+      totalMaterials: materialCount[0].total,
+      totalLiveClasses: liveClassCount[0].total,
+      totalDoubts: doubtRows[0].total,
+      pendingDoubts: pendingDoubts.total,
+      resolvedDoubts,
+      batches: batchesWithStudents,
+      testResultSummary,
+    },
+  });
+}));
+
 // ── Test Results ───────────────────────────────────────────────────────────
 router.get('/tests/:testId/results', asyncHandler(async (req, res) => {
   const data = await db

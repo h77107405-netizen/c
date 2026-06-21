@@ -22,12 +22,12 @@ import {
   Menu,
   X,
   LogOut,
-  Bell,
   User,
   UsersRound,
   Calendar,
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import { NotificationBell } from './NotificationBell';
 
 const navigation = [
   { name: 'Dashboard', href: '/admin', icon: LayoutDashboard },
@@ -130,11 +130,7 @@ export const AdminLayout: React.FC = () => {
             <div className="flex-1 lg:ml-0" />
 
             <div className="flex items-center space-x-4">
-              {/* Notifications */}
-              <Button variant="ghost" size="icon" className="relative">
-                <Bell className="h-5 w-5" />
-                <span className="absolute top-1 right-1 h-2 w-2 bg-red-500 rounded-full" />
-              </Button>
+              <NotificationBell />
 
               {/* User menu */}
               <DropdownMenu>

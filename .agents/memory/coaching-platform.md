@@ -18,6 +18,7 @@ description: Key decisions, API shapes, and deployment facts for the Coaching Ma
 
 ## Critical API shape mismatches (fixed)
 - Teacher dashboard returns `myBatches`, `materialsUploaded`, `testsCreated`, `pendingDoubts`, `upcomingClasses[]` — NOT generic totalX fields
+- `/teacher/analytics` returns real data: totalStudents, totalBatches, totalTests, totalMaterials, totalLiveClasses, resolvedDoubts, pendingDoubts, batches[], testResultSummary[]
 - Student dashboard returns `recentResults[]`, `upcomingClasses[]`, `recentMaterials[]`, `feeStatus` — NOT counts
 - Materials backend stores as `fileUrl`/`fileType`/`fileName` — frontend forms submit `url`/`type` — display layer must handle both
 
@@ -30,22 +31,33 @@ description: Key decisions, API shapes, and deployment facts for the Coaching Ma
 - Drizzle ORM schema at `apps/backend/src/db/schema.ts`
 - Run `npm run db:push` to push schema changes
 - `drizzle.config.ts` at root reads `DATABASE_URL` env var
+- `settings` table: key (PK), value, updatedAt — used by admin settings
+
+## File Uploads
+- Backend: `POST /api/upload` (multer, 50MB limit) → saves to `uploads/` dir → returns `{ fileUrl: '/api/uploads/filename', fileName, fileSize, mimeType }`
+- Files served as static via `app.use('/api/uploads', express.static(...))`  in server.ts
+- Frontend: `api.uploadFile(file)` in api.ts — does FormData POST, returns upload info
+- Both AdminMaterialsPage and TeacherMaterialsPage have "Upload File" / "Paste URL" tabs
+
+## Notifications
+- Schema: `notifications` table — receiverId, senderId, type, title, message, link, isRead, createdAt
+- Routes at `/api/notifications`: GET (all for user), GET /unread-count, PATCH /:id/read, PATCH /read-all, POST /send
+- Frontend: `NotificationBell` component polls unread count every 30s, dropdown panel for all 3 portals
+- Admin/Teacher can call `api.notifications.send({ receiverIds, title, message, type, link })`
 
 ## Test System (fully implemented)
-- Teacher: create test (title, batch, marks, duration) → add MCQ questions via question builder dialog → publish
-- Questions stored in `questions` table: questionText, options (JSONB string array), correctAnswer (label "A"/"B"/"C"/"D"), marks
-- Backend routes: `GET/POST /api/teacher/tests/:id/questions`
-- Student: lists published tests → "Start Test" opens full-screen modal with countdown timer, question nav, MCQ options, confirm-submit
-- Auto-scoring: backend iterates MCQ questions, matches selectedAnswer label to correctAnswer, tallies marks
-- Backend routes: `GET /api/student/tests/:testId/questions`, `POST /api/student/tests/:testId/submit`
-- Result returned immediately: `{ marksObtained, totalMarks, percentage, passed }`
-- api.ts: `teacher.getTestQuestions`, `teacher.saveTestQuestions`, `student.getTestQuestions`, `student.submitTest`
+- Teacher: create test → add MCQ questions via question builder → publish
+- Questions: questionText, options (JSONB string array), correctAnswer (label "A"/"B"/"C"/"D"), marks
+- Auto-scoring on submit; result returned immediately with marksObtained, totalMarks, percentage, passed
+- Backend routes: `GET/POST /api/teacher/tests/:id/questions`, `GET /api/student/tests/:testId/questions`, `POST /api/student/tests/:testId/submit`
+
+## Admin Settings
+- Persisted to `settings` table as key-value pairs
+- Backend: `GET /api/admin/settings` → `{ data: Record<string,string> }`, `PUT /api/admin/settings` → upsert all keys
+- Frontend: loads on mount, each section (institute, notifications, fees) saves independently
 
 ## What's Still Missing / Next to Build
-1. Admin batch UI: assign teachers/students to batches (backend supports it, UI does not)
-2. Teacher analytics: wire real data (currently placeholder charts)
-3. Notification system: schema exists, no sending logic
-4. Cloudinary file uploads for materials (currently URL-only input)
-5. Admin settings persistence (UI-only, no DB)
-
-**Why:** Future sessions won't have to re-discover these mismatches or wonder about the concurrently setup or test flow.
+1. Send Notification UI (admin can broadcast to all students/teachers from admin panel)
+2. Student results analytics page (charts showing score history over time)
+3. Assignment submission review (teacher sees student submissions)
+4. Fee reminder auto-trigger when due date approaches

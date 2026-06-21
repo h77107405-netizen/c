@@ -21,7 +21,24 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   return data;
 }
 
+async function uploadFile(file: File): Promise<{ fileUrl: string; fileName: string; fileSize: number; mimeType: string }> {
+  const token = getToken();
+  const form = new FormData();
+  form.append('file', file);
+  const res = await fetch(`${BASE_URL}/upload`, {
+    method: 'POST',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: form,
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Upload failed');
+  return data.data;
+}
+
 export const api = {
+  // File Upload
+  uploadFile,
+
   // Auth
   auth: {
     login: (email: string, password: string) =>
@@ -30,6 +47,15 @@ export const api = {
         body: JSON.stringify({ email, password }),
       }),
     me: () => request<{ success: boolean; data: any }>('/auth/me'),
+  },
+
+  // Notifications
+  notifications: {
+    getAll: () => request<any>('/notifications'),
+    getUnreadCount: () => request<any>('/notifications/unread-count'),
+    markRead: (id: string) => request<any>(`/notifications/${id}/read`, { method: 'PATCH' }),
+    markAllRead: () => request<any>('/notifications/read-all', { method: 'PATCH' }),
+    send: (data: any) => request<any>('/notifications/send', { method: 'POST', body: JSON.stringify(data) }),
   },
 
   // Admin
@@ -72,11 +98,15 @@ export const api = {
     getFees: () => request<any>('/admin/fees'),
     createFee: (data: any) => request<any>('/admin/fees', { method: 'POST', body: JSON.stringify(data) }),
     recordPayment: (feeId: string, data: any) => request<any>(`/admin/fees/${feeId}/payments`, { method: 'POST', body: JSON.stringify(data) }),
+    // Settings
+    getSettings: () => request<any>('/admin/settings'),
+    saveSettings: (data: Record<string, string>) => request<any>('/admin/settings', { method: 'PUT', body: JSON.stringify(data) }),
   },
 
   // Teacher
   teacher: {
     dashboard: () => request<any>('/teacher/dashboard'),
+    analytics: () => request<any>('/teacher/analytics'),
     getBatches: () => request<any>('/teacher/batches'),
     getMaterials: () => request<any>('/teacher/materials'),
     uploadMaterial: (data: any) => request<any>('/teacher/materials', { method: 'POST', body: JSON.stringify(data) }),
